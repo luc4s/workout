@@ -1,0 +1,342 @@
+import { useEffect, useMemo, useState } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { getTemplate, getVariant } from '../data/program';
+import type { Prescription, TemplateId } from '../data/types';
+import { db } from '../db/db';
+import { Chips, Note, ToggleRow } from '../components/controls';
+import { IconCheck } from '../components/icons';
+import { formatClock } from '../hooks/useNow';
+import { isLoadable, LOAD_STEP_KG, rangeText, type Suggestion } from '../logic/progression';
+import type { SlotPlan } from '../logic/runner';
+import { warningsFor } from '../logic/schedule';
+import { prepareSession, startSession, type Preparation, type SessionOptions } from '../logic/session';
+import { estimateDurationSec } from '../logic/steps';
+
+export default function SessionSetup() {
+  const { templateId = 'A' } = useParams();
+  const navigate = useNavigate();
+  const template = getTemplate(templateId as TemplateId);
+  const [variantId, setVariantId] = useState(template.variants[0].id);
+  const [finisher, setFinisher] = useState(true);
+  const [badDay, setBadDay] = useState(false);
+  const [deload, setDeload] = useState(false);
+  const [restPauseSlot, setRestPauseSlot] = useState('B.rp-row');
+  const [prep, setPrep] = useState<Preparation>();
+  const [plans, setPlans] = useState<Record<string, SlotPlan>>({});
+  const [ready, setReady] = useState<Record<string, boolean>>({});
+  const [starting, setStarting] = useState(false);
+  const sessions = useLiveQuery(() => db.sessions.toArray(), []);
+  const runner = useLiveQuery(() => db.kv.get('runner'), []);
+
+  const opts: SessionOptions = useMemo(
+    () => ({ templateId: template.id, variantId, flags: { badDay, deload, finisher }, restPauseSlot }),
+    [template.id, variantId, badDay, deload, finisher, restPauseSlot],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    prepareSession(opts).then((p) => {
+      if (cancelled) return;
+      setPrep(p);
+      setPlans(p.plans);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [opts]);
+
+  const variant = getVariant(template, variantId);
+  const warnings = sessions ? warningsFor(template.id, sessions, Date.now()) : [];
+  const hasFinisher = variant.blocks.some((b) => (b.kind === 'pair' || b.kind === 'rest-pause') && b.optional);
+  const isRowing = template.id === 'row';
+
+  const visible = prep
+    ? prep.prescriptions
+        .filter((p) => !p.key.includes('.rp-') || (finisher && p.key === restPauseSlot))
+        .filter((p) => finisher || !variant.blocks.some((b) => b.kind === 'pair' && b.optional && b.exercises.some((e) => e.key === p.key)))
+    : [];
+  const weighted = visible.filter((p) => isLoadable(p, plans[p.key]?.variationId));
+  const loadStep = prep?.settings.loadStep || LOAD_STEP_KG;
+
+  const start = async () => {
+    if (!prep) return;
+    setStarting(true);
+    // A weight picked here that differs from the suggestion restarts that exercise at the bottom of its range.
+    const suggestions: Record<string, Suggestion> = { ...prep.suggestions };
+    for (const p of weighted) {
+      const s = suggestions[p.key];
+      const kg = plans[p.key]?.loadKg ?? 0;
+      if (s && s.kind !== 'deload' && s.kind !== 'bad-day' && (s.plan.loadKg ?? 0) !== kg) {
+        suggestions[p.key] = {
+          ...s,
+          kind: 'changed',
+          repsTarget: s.repsTarget.map(() => p.reps.min),
+          message: `Weight set to ${kg} kg — start at the bottom of the range (${p.reps.min}).`,
+        };
+      }
+    }
+    await startSession(opts, { ...prep, plans, suggestions });
+    navigate('/run');
+  };
+
+  return (
+    <div className="page">
+      <div className="page-head">
+        <div className="stack tight">
+          <Link to="/" className="faint" style={{ textDecoration: 'none' }}>
+            ‹ Today
+          </Link>
+          <h1>{template.name}</h1>
+          <div className="muted">
+            {template.subtitle}
+            {prep && !isRowing && <> · est. {Math.round(estimateDurationSec(prep.steps) / 60)} min</>}
+          </div>
+        </div>
+      </div>
+
+      {runner?.value ? (
+        <Note kind="warn">
+          A session is already in progress.{' '}
+          <Link to="/run">
+            <b>Resume it</b>
+          </Link>{' '}
+          or end it before starting another.
+        </Note>
+      ) : null}
+
+      <div className="grid grid-2" style={{ alignItems: 'start' }}>
+        <div className="stack">
+          {prep && !isRowing && (
+            <div className="card stack">
+              <div className="row between">
+                <div className="section-title">Prepare your weights</div>
+                {weighted.length > 0 && weighted.every((p) => ready[p.key]) && (
+                  <span className="badge good">
+                    <IconCheck width={14} height={14} /> All set
+                  </span>
+                )}
+              </div>
+              {weighted.length === 0 ? (
+                <div className="muted">No weights needed today — bodyweight only.</div>
+              ) : (
+                <div className="stack tight">
+                  {weighted.map((p) => (
+                    <WeightRow
+                      key={p.key}
+                      name={p.name}
+                      kg={plans[p.key]?.loadKg ?? 0}
+                      step={loadStep}
+                      suggested={prep.suggestions[p.key]?.plan.loadKg}
+                      last={prep.lastTime[p.key]?.loadKg}
+                      ready={!!ready[p.key]}
+                      onReady={() => setReady((s) => ({ ...s, [p.key]: !s[p.key] }))}
+                      onChange={(kg) => setPlans((s) => ({ ...s, [p.key]: { ...s[p.key], loadKg: kg } }))}
+                    />
+                  ))}
+                  <div className="faint" style={{ fontSize: 14 }}>
+                    Added weight in kg. Suggestions go up as you hit the top of the rep range.
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          <div className="card stack">
+            <div className="muted">{template.intro}</div>
+            {warnings.map((w) => (
+              <Note key={w} kind="warn">
+                {w}
+              </Note>
+            ))}
+            {template.variants.length > 1 && (
+              <>
+                <div className="section-title">Workout</div>
+                <Chips options={template.variants.map((v) => ({ id: v.id, label: v.name }))} value={variantId} onChange={setVariantId} />
+                <div className="muted">{variant.description}</div>
+              </>
+            )}
+            {!isRowing && (
+              <>
+                <ToggleRow
+                  title="Bad day"
+                  description="Poor sleep / high stress: do it anyway at ~3 RIR, don't chase progression."
+                  checked={badDay}
+                  onChange={setBadDay}
+                />
+                <ToggleRow title="Deload week" description="1–2 sets per exercise, ~3–4 RIR, same load." checked={deload} onChange={setDeload} />
+                {hasFinisher && (
+                  <ToggleRow
+                    title={template.id === 'B' ? 'Rest-pause finisher (+3 min)' : 'Finisher'}
+                    description="Drop it when short on time or energy — never the primary strength work."
+                    checked={finisher}
+                    onChange={setFinisher}
+                  />
+                )}
+                {template.id === 'B' && finisher && (
+                  <Chips
+                    options={[
+                      { id: 'B.rp-row', label: 'Rest-pause rows' },
+                      { id: 'B.rp-pike', label: 'Rest-pause pike push-ups' },
+                    ]}
+                    value={restPauseSlot}
+                    onChange={setRestPauseSlot}
+                  />
+                )}
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="card stack">
+          <div className="section-title">Plan & targets</div>
+          {!prep ? (
+            <div className="empty">Loading…</div>
+          ) : isRowing ? (
+            <RowingPlan variantId={variantId} />
+          ) : (
+            <div className="list">
+              {visible.map((p) => (
+                  <PlanRow
+                    key={p.key}
+                    p={p}
+                    sets={prep.steps.filter((s) => s.kind === 'work' && s.slot === p.key).length}
+                    message={prep.suggestions[p.key]?.message}
+                    target={prep.suggestions[p.key]?.repsTarget}
+                    plan={plans[p.key] ?? {}}
+                    onPlan={(plan) => setPlans((s) => ({ ...s, [p.key]: { ...s[p.key], ...plan } }))}
+                  />
+                ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div style={{ position: 'sticky', bottom: 16 }}>
+        <button className="btn primary huge block" onClick={start} disabled={!prep || starting || !!runner?.value} style={{ boxShadow: '0 8px 24px rgb(0 0 0 / 0.2)' }}>
+          Start {template.shortName.toLowerCase()} session
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PlanRow(props: {
+  p: Prescription;
+  sets: number;
+  message?: string;
+  target?: number[];
+  plan: SlotPlan;
+  onPlan: (plan: SlotPlan) => void;
+}) {
+  const { p, sets, message, target, plan, onPlan } = props;
+  const loadable = isLoadable(p, plan.variationId);
+  return (
+    <div className="stack tight">
+      <div className="row between wrap">
+        <div style={{ fontWeight: 700 }}>{p.name}</div>
+        <div className="row" style={{ gap: 6 }}>
+          <span className="badge">
+            {sets} × {rangeText(p.reps)}
+            {p.perSide ? ' /leg' : ''}
+          </span>
+          <span className="badge">{rangeText(p.rir)} RIR</span>
+          {loadable && <span className="badge accent">+{plan.loadKg ?? 0} kg</span>}
+        </div>
+      </div>
+      {message && (
+        <div className="muted" style={{ fontSize: 15 }}>
+          {message}
+          {target && target.length > 0 && <span className="faint"> Target: {target.join(' · ')}</span>}
+        </div>
+      )}
+      {p.variations && (
+        <select
+          className="input"
+          value={plan.variationId ?? p.defaultVariation}
+          onChange={(e) => onPlan({ variationId: e.target.value })}
+          aria-label={`${p.name} variation`}
+        >
+          {p.variations.map((v) => (
+            <option key={v.id} value={v.id}>
+              {v.name}
+              {v.alt ? ' (alternative)' : ''}
+            </option>
+          ))}
+        </select>
+      )}
+    </div>
+  );
+}
+
+function WeightRow(props: {
+  name: string;
+  kg: number;
+  step: number;
+  suggested?: number;
+  last?: number;
+  ready: boolean;
+  onReady: () => void;
+  onChange: (kg: number) => void;
+}) {
+  const { name, kg, step, suggested, last, ready, onReady, onChange } = props;
+  let hint: string;
+  if (last === undefined) hint = 'First time — pick a weight you can move for the whole range';
+  else if (kg > last) hint = `Up from ${last} kg last time`;
+  else if (kg < last) hint = `Down from ${last} kg last time`;
+  else hint = 'Same as last time';
+  if (suggested !== undefined && suggested !== kg) hint += ` · suggested ${suggested} kg`;
+  const set = (v: number) => onChange(Math.max(0, Math.round(v * 100) / 100));
+
+  return (
+    <div className={`weight-row${ready ? ' ready' : ''}`}>
+      <button type="button" className="weight-check" onClick={onReady} aria-pressed={ready} aria-label={`${name} weight ready`}>
+        {ready && <IconCheck width={20} height={20} />}
+      </button>
+      <div className="weight-name">
+        <div style={{ fontWeight: 650 }}>{name}</div>
+        <div className={`weight-hint${last !== undefined && kg > last ? ' up' : ''}`}>{hint}</div>
+      </div>
+      <div className="weight-picker">
+        <button type="button" onClick={() => set(kg - step)} aria-label={`Less weight for ${name}`}>
+          −
+        </button>
+        <div className="weight-value num">
+          {kg}
+          <small>kg</small>
+        </div>
+        <button type="button" onClick={() => set(kg + step)} aria-label={`More weight for ${name}`}>
+          +
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function RowingPlan({ variantId }: { variantId: string }) {
+  const variant = getVariant(getTemplate('row'), variantId);
+  const block = variant.blocks[0];
+  if (block.kind !== 'interval') return null;
+  return (
+    <div className="stack tight">
+      {block.phases.map((ph, i) => (
+        <div key={i} className="row between" style={{ padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+          <span className="row" style={{ gap: 10 }}>
+            <span
+              style={{
+                width: 12,
+                height: 12,
+                borderRadius: 4,
+                background: ph.intensity === 'hard' ? 'var(--hard)' : ph.intensity === 'easy' ? 'var(--rest)' : 'var(--accent)',
+              }}
+            />
+            {ph.label}
+          </span>
+          <span className="num muted">{formatClock(ph.durationSec)}</span>
+        </div>
+      ))}
+      <div className="faint" style={{ marginTop: 8 }}>
+        Total {formatClock(block.phases.reduce((a, p) => a + p.durationSec, 0))}. Hard = just sustainable for the interval.
+      </div>
+    </div>
+  );
+}
