@@ -59,7 +59,7 @@ export function RestView(props: { state: RunnerState; step: RestStep; dispatch: 
       {next && next.kind === 'work' && (
         <section className="card next-card">
           <div className="section-title">Up next</div>
-          <h2 className="work-name" style={{ fontSize: 32 }}>
+          <h2 className="work-name" style={{ fontSize: 23 }}>
             {next.name}
           </h2>
           <div className="target-line">
@@ -73,6 +73,23 @@ export function RestView(props: { state: RunnerState; step: RestStep; dispatch: 
               <b>{rangeText(next.rir)}</b> RIR
             </span>
           </div>
+          {(() => {
+            const last = state.lastTime[next.slot];
+            if (!last?.reps.length) return null;
+            const idx = (next.restPause?.mini ?? next.setNumber) - 1;
+            return (
+              <div className="set-history" style={{ justifyContent: 'flex-start' }} aria-label="Reps per set last time">
+                <span className="faint" style={{ background: 'none' }}>
+                  Last time
+                </span>
+                {last.reps.map((r, i) => (
+                  <span key={i} className={i === idx ? 'now' : undefined}>
+                    {r}
+                  </span>
+                ))}
+              </div>
+            );
+          })()}
           {(() => {
             const kg = loadFor(state, next);
             if (kg === undefined || kg === 0) return null;

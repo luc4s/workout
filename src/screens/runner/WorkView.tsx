@@ -9,6 +9,7 @@ import { Sheet, Stepper } from '../../components/controls';
 import { IconCheck } from '../../components/icons';
 import { formatClock } from '../../hooks/useNow';
 import { isLoadable, LOAD_STEP_KG, rangeText, variationOf } from '../../logic/progression';
+import { relativeDay } from '../../logic/schedule';
 import { stepElapsedMs, type RunnerAction, type RunnerState } from '../../logic/runner';
 import { logSet } from '../../logic/session';
 import { remainingSetsOf, type WorkStep } from '../../logic/steps';
@@ -86,6 +87,7 @@ export function WorkView(props: {
 
   const elapsed = stepElapsedMs(state, now) / 1000;
   const reps = step.perSide ? Math.min(form.left, form.right) : form.reps;
+  const lastReps = last?.reps[idx];
 
   const submit = async () => {
     setSaving(true);
@@ -103,7 +105,7 @@ export function WorkView(props: {
   };
 
   const setLabel = step.restPause ? `Mini-set ${step.restPause.mini} of ${step.restPause.of}` : `Set ${step.setNumber} of ${step.totalSets}`;
-  const targetHint = target !== undefined ? `Target ${target}` : undefined;
+  const repsHint = lastReps !== undefined ? `last time ${lastReps}` : undefined;
 
   return (
     <div className="work-grid">
@@ -137,13 +139,6 @@ export function WorkView(props: {
             {step.restPause.mini === 1 ? 'Go to ~0 RIR, then rest 15–20 s.' : 'Rep out again — stop when form breaks.'}
           </div>
         )}
-        {last && !step.restPause && (
-          <div className="faint">
-            Last time: {last.reps.join(' · ')}
-            {last.loadKg ? ` @ +${last.loadKg} kg` : ''}
-          </div>
-        )}
-
         {p.variations && (
           <select
             className="input"
@@ -179,13 +174,38 @@ export function WorkView(props: {
           {formatClock(elapsed)}
         </div>
 
+        <div className="set-goals">
+          <div className="goal target">
+            <span className="k">Target</span>
+            <b className="num">{target ?? rangeText(step.reps)}</b>
+            <span className="u">reps{step.perSide ? ' / leg' : ''}</span>
+          </div>
+          <div className="goal">
+            <span className="k">Last time</span>
+            <b className="num">{lastReps ?? '—'}</b>
+            <span className="u">
+              {last ? `${relativeDay(last.at, now)}${last.loadKg ? ` · +${last.loadKg} kg` : ''}` : 'first time'}
+            </span>
+          </div>
+        </div>
+
+        {last && last.reps.length > 1 && (
+          <div className="set-history" aria-label="Reps per set last time">
+            {last.reps.map((r, i) => (
+              <span key={i} className={i === idx ? 'now' : undefined}>
+                {r}
+              </span>
+            ))}
+          </div>
+        )}
+
         {step.perSide ? (
           <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <Stepper label="Weaker leg" value={form.left} onChange={(v) => setForm((f) => ({ ...f, left: v }))} hint="first" hit={target !== undefined && form.left >= target} />
             <Stepper label="Other leg" value={form.right} onChange={(v) => setForm((f) => ({ ...f, right: v }))} hint="match reps" hit={target !== undefined && form.right >= target} />
           </div>
         ) : (
-          <Stepper label="Reps" value={form.reps} onChange={(v) => setForm((f) => ({ ...f, reps: v }))} hint={targetHint} hit={target !== undefined && form.reps >= target} />
+          <Stepper label="Reps" value={form.reps} onChange={(v) => setForm((f) => ({ ...f, reps: v }))} hint={repsHint} hit={target !== undefined && form.reps >= target} />
         )}
 
         {loadable && (
@@ -232,9 +252,7 @@ export function WorkView(props: {
             Skip remaining {remaining} set{remaining > 1 ? 's' : ''} of this exercise
           </button>
         )}
-        <div className="faint" style={{ fontSize: 14, textAlign: 'center' }}>
-          A rep counts only at full range with controlled tempo — form breaks = set over.
-        </div>
+        <div className="faint work-note">A rep counts only at full range with controlled tempo — form breaks = set over.</div>
       </section>
 
       <Sheet open={guideOpen} onClose={() => setGuideOpen(false)}>

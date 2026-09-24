@@ -59,7 +59,7 @@ export default function Home() {
           <div className="section-title">Up next</div>
           <div className="row between wrap">
             <div className="stack tight">
-              <h2 style={{ fontSize: 28 }}>{nextT.name}</h2>
+              <h2 style={{ fontSize: 23 }}>{nextT.name}</h2>
               <div className="muted">{nextT.subtitle}</div>
             </div>
           </div>
