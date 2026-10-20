@@ -1,21 +1,19 @@
 import { useState } from 'react';
-import { ANIMS } from '../anim/clips';
-import { SkeletonPlayer } from '../anim/SkeletonPlayer';
+import { AnimPlayer, useAnimMeta } from '../anim3d/AnimPlayer';
 import { EXERCISES } from '../data/exercises';
 import type { ExerciseId } from '../data/types';
 
 /** Technique guide: animation with mistake demos, cues, steps and sources. */
 export function GuideContent({ exerciseId, compact }: { exerciseId: ExerciseId; compact?: boolean }) {
   const guide = EXERCISES[exerciseId];
-  const anim = ANIMS[exerciseId];
-  const faults = anim.view === 'side' ? anim.faults : [];
+  const faults = useAnimMeta(exerciseId)?.faults ?? [];
   const [faultId, setFaultId] = useState<string>();
   const fault = faults.find((f) => f.id === faultId);
 
   return (
     <div className="guide grid grid-2" style={{ alignItems: 'start', gap: 24 }}>
       <div className="stack" style={{ position: compact ? undefined : 'sticky', top: 16 }}>
-        <SkeletonPlayer exerciseId={exerciseId} faultId={faultId} controls />
+        <AnimPlayer exerciseId={exerciseId} faultId={faultId} controls />
         {faults.length > 0 && (
           <div className="stack tight">
             <div className="section-title">Show a common mistake</div>
@@ -38,7 +36,7 @@ export function GuideContent({ exerciseId, compact }: { exerciseId: ExerciseId; 
             {fault && <div className="muted">{fault.title}. Highlighted in red.</div>}
           </div>
         )}
-        {anim.caption && <div className="faint">{anim.caption}</div>}
+        <div className="faint">Drag to rotate · double-tap to reset the view.</div>
       </div>
 
       <div className="stack">

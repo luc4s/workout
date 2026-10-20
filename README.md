@@ -32,7 +32,9 @@ animated technique guides.
   movement that stalled, else the one that ended today's sets with the most reps in reserve,
   else the one not done last time.
 - **Exercise guides** — setup, execution, cues, common mistakes, regressions/progressions and
-  sources for every movement, with a stick-figure animation and red-highlighted mistake demos.
+  sources for every movement, with a 3D animation (glTF) you can rotate — drag, double-tap to
+  reset, Side / Front / ¾ presets — and red-highlighted mistake demos. Every pose is checked
+  against public-domain reference photos (see *3D animations* below).
 - **Data** — stored on the device (IndexedDB). Export / import JSON from Settings. Updates never
   break existing data or backups (see `CLAUDE.md`).
 
@@ -91,7 +93,8 @@ How the runner holds to that, in `src/screens/runner/runner.css`:
   being sized by their content.
 - The figure (`.work-anim`, `.next-anim`, `.warm-anim`) is `flex: 1` with `min-height`, so it
   takes the leftover height and shrinks first on a small screen rather than pushing the logging
-  panel off the bottom. The `.stage` is height-driven there, width-driven everywhere else.
+  panel off the bottom. There the 3D `.stage3d` just fills that box (the camera adapts to any
+  aspect ratio); elsewhere, and in portrait, the stage is 4:3 and width-driven.
 - Timer rings are capped at `42vh` so the buttons under them stay on screen; the `size` prop of
   `TimerRing` is only the SVG geometry and an upper bound.
 - `@media (max-height: 760px) and (orientation: landscape)` tightens the logging panel. The
@@ -110,9 +113,28 @@ the browser at desktop size — `document.querySelector('.runner-body')` should 
 - `src/data/program.ts` — the program encoded from the PDF; `exercises.ts` — technique guides; `rules.ts`
 - `src/logic/` — `steps.ts` (session → steps), `runner.ts` (timer state machine), `progression.ts`,
   `schedule.ts`, `session.ts` (DB orchestration)
-- `src/anim/` — 2D rig (FK + two-bone IK), clips per exercise, SVG renderer
+- `src/anim3d/` — 3D animations: `body.ts` (proportions, bones), `pose.ts` / `rig.ts` (poses,
+  FK + two-bone IK), `scene.ts` (mannequin, props, baking), `exercises/*.ts` (one pose spec per
+  exercise, with its references), `AnimPlayer.tsx` / `stage.ts` (three.js viewer)
 - `src/screens/` — UI; `src/screens/runner/` — the in-session views
 - `src/styles/global.css` — design scale and shared components; `src/screens/runner/runner.css`
   — the in-session layout (see *Layout constraint* above)
-- `scripts/render-anims.tsx` — dumps animation frames to SVG for checking poses
-  (`npx vite-node scripts/render-anims.tsx /tmp/frames pullup`)
+- `scripts/build-anims.ts` — writes `public/anims/<id>.glb` and `src/anim3d/REFERENCES.md`
+
+## 3D animations
+
+Each exercise is a pose spec in `src/anim3d/exercises/` — keyframes in world coordinates (hands,
+feet and trunk placed where the reference photos put them, joints solved with IK), captions and
+mistake demos. `npm run anims` bakes them into one `.glb` per exercise (also run automatically
+by `npm run dev` / `npm run build`; the output is not committed). The references used for each
+movement are listed in `src/anim3d/REFERENCES.md`.
+
+Checking a pose:
+
+- `npx vite-node dev/probe.ts <id> [clip] [t…]` prints joint positions, IK contact errors and the
+  lowest body point (floor penetration).
+- `npm run dev`, then open `/dev/anim-check.html?id=<id>&t=<seconds>&view=side` (or `&az=<deg>&el=<deg>`
+  to match a photo's camera angle) — a single rendered frame for side-by-side comparison.
+- `src/anim3d/anim.test.ts` fails if a hand / foot misses its contact by more than 1.2 cm, a body
+  part goes through the floor, an elbow or knee leaves its range, or a limb switches between IK
+  and FK within a clip.

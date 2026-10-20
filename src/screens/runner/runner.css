@@ -340,6 +340,21 @@
   justify-content: center;
 }
 
+/* The 3D view adapts its camera to any aspect ratio, so in the runner it simply fills the box it
+   gets instead of keeping 4:3 (which made it a narrow strip). */
+.work-anim .figure,
+.next-anim .figure,
+.warm-anim .figure {
+  width: 100%;
+}
+
+.work-anim .stage3d,
+.next-anim .stage3d,
+.warm-anim .stage3d {
+  width: 100%;
+  aspect-ratio: auto;
+}
+
 /* Rowing: let the cue card take the slack so its figure has room to grow. */
 .rest-grid > .stack {
   min-height: 0;
@@ -534,6 +549,7 @@
   .next-anim .stage,
   .warm-anim .stage {
     width: 100%;
+    aspect-ratio: 4 / 3;
   }
   .next-card,
   .phase-list,

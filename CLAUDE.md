@@ -19,6 +19,14 @@ backups. Every change must keep that data working with **no migration step**:
 - `src/logic/logic.test.ts` has a `V1_BACKUP` fixture. It must keep importing and producing plans;
   never edit it to make a change pass — fix the change instead.
 
+## 3D animations
+
+- Poses live in `src/anim3d/exercises/*.ts`; `public/anims/*.glb` is generated (`npm run anims`)
+  and gitignored. Base new poses on a reference (photo / written technique) and cite it in the
+  spec's `references`; `src/anim3d/REFERENCES.md` is regenerated from them — commit it.
+- Clip names (`main`, `fault:<id>`) and node names (`m_<bone>_<n>`, `p_<prop>`) are read by the
+  viewer; no `.` or `:` in node names (three.js bindings).
+
 ## Checks
 
 ```sh

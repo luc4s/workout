@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { SkeletonPlayer } from '../../anim/SkeletonPlayer';
+import { AnimPlayer } from '../../anim3d/AnimPlayer';
 import { EXERCISES } from '../../data/exercises';
 import { TimerRing } from '../../components/TimerRing';
 import { IconSkip } from '../../components/icons';
@@ -105,7 +105,7 @@ export function RestView(props: { state: RunnerState; step: RestStep; dispatch: 
             );
           })()}
           <div className="next-anim">
-            <SkeletonPlayer exerciseId={exerciseForStep(state, next)} />
+            <AnimPlayer exerciseId={exerciseForStep(state, next)} />
           </div>
           <div className="cue-row">
             {[...new Set((next.hint ? [next.hint] : []).concat(EXERCISES[exerciseForStep(state, next)].cues))].slice(0, 3).map((c) => (

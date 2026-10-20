@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { SkeletonPlayer } from '../../anim/SkeletonPlayer';
+import { AnimPlayer } from '../../anim3d/AnimPlayer';
 import { EXERCISES } from '../../data/exercises';
 import { PRESCRIPTIONS } from '../../data/program';
 import type { ExerciseId } from '../../data/types';
@@ -169,9 +169,9 @@ export function WorkView(props: {
           />
         )}
 
-        <button type="button" className="work-anim" onClick={() => setGuideOpen(true)} aria-label="Open technique guide">
-          <SkeletonPlayer exerciseId={exerciseId} />
-        </button>
+        <div className="work-anim">
+          <AnimPlayer exerciseId={exerciseId} />
+        </div>
         <div className="cue-row">
           {[...new Set((step.hint ? [step.hint] : []).concat(guide.cues))].slice(0, 3).map((c) => (
             <span key={c} className="badge accent">
