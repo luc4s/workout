@@ -167,6 +167,15 @@ export function dropRemainingSets(steps: Step[], fromIndex: number, slot: string
   return normalizeRests(kept);
 }
 
+/** Point the rest-pause finisher's mini-sets at another exercise. */
+export function swapRestPause(steps: Step[], p: Prescription): Step[] {
+  return steps.map((s) =>
+    s.kind === 'work' && s.restPause
+      ? { ...s, id: `rp:${p.key}#${s.restPause.mini}`, slot: p.key, exerciseId: p.exerciseId, name: p.name, notes: p.notes, hint: p.hint }
+      : s,
+  );
+}
+
 export function remainingSetsOf(steps: Step[], fromIndex: number, slot: string): number {
   return steps.filter((s, i) => i > fromIndex && s.kind === 'work' && s.slot === slot).length;
 }

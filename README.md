@@ -14,17 +14,27 @@ animated technique guides.
   exercise (from your last session plus any suggested increase); adjust it with +/− using your
   weight increment (Settings).
 - **Logging** — reps (per leg for split squats / pistols), added load, RIR, variation.
-  Past sessions can be edited in History.
+  Past sessions can be edited in History, including the variation (for one set or all sets of
+  that exercise in the session).
+- **Variations** — every exercise with options (push-up, pistol / archer squat, row, …) has a
+  *Variation* picker on the setup screen and on the set screen; the choice is remembered. Changing
+  it mid-session resets that exercise's target to the bottom of the range.
 - **Target vs. last time** — every set shows the rep target next to what you did on the same
   set last session, how long ago it was and the load you used, with a strip of last session's
   sets (the one you are on highlighted). The rest screen repeats it for the set coming up.
 - **Progression** — implements the program rules: double progression (+2.5 kg or next
   variation at the top of the range), +1 rep on the weakest set, the pull-up roadmap stages,
   bad-day and deload modes, stall detection, schedule warnings (no back-to-back full sessions,
-  ~48 h between rowing and Session A).
+  ~48 h between rowing and Session A). "Last time" always shows the session the targets were
+  built from; after a roadmap stage change (e.g. 4 × 5 → 3 × 6–8) targets start at the new minimum.
+- **Rest-pause finisher (Session B)** — rows or pike push-ups, switchable on the setup screen
+  and during the session until the first mini-set is logged. The app suggests one (★): the
+  movement that stalled, else the one that ended today's sets with the most reps in reserve,
+  else the one not done last time.
 - **Exercise guides** — setup, execution, cues, common mistakes, regressions/progressions and
   sources for every movement, with a stick-figure animation and red-highlighted mistake demos.
-- **Data** — stored on the device (IndexedDB). Export / import JSON from Settings.
+- **Data** — stored on the device (IndexedDB). Export / import JSON from Settings. Updates never
+  break existing data or backups (see `CLAUDE.md`).
 
 ## Development
 

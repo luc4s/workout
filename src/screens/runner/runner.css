@@ -541,3 +541,15 @@
     overflow-y: visible;
   }
 }
+
+/* Rest-pause finisher choice */
+.rp-switch {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rp-reason {
+  font-size: 13px;
+  color: var(--text-2);
+}

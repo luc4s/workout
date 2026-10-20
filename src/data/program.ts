@@ -267,11 +267,12 @@ export const TEMPLATES: SessionTemplate[] = [
                 reps: { min: 8, max: 12 },
                 perSide: true,
                 rir: RIR_HYPER,
-                notes: 'Box pistol → assisted → full → weighted. Knees complain: high step-ups with backpack.',
+                notes: 'Box pistol → assisted → archer squat → full → weighted. Knees complain: high step-ups with backpack.',
                 variations: [
                   { id: 'step-up', name: 'High step-up (backpack)', exerciseId: 'step-up', loadable: true, alt: true },
                   { id: 'box', name: 'Box pistol' },
                   { id: 'assisted', name: 'Assisted pistol' },
+                  { id: 'archer', name: 'Archer squat', exerciseId: 'archer-squat' },
                   { id: 'full', name: 'Full pistol' },
                   { id: 'weighted', name: 'Weighted pistol', loadable: true },
                 ],
@@ -342,6 +343,7 @@ export const TEMPLATES: SessionTemplate[] = [
                 key: 'B.rp-row',
                 exerciseId: 'inverted-row',
                 name: 'Rest-pause rows',
+                basedOn: 'B.row',
                 sets: { min: 1, max: 1 },
                 reps: { min: 1, max: 30 },
                 rir: { min: 0, max: 0 },
@@ -351,6 +353,7 @@ export const TEMPLATES: SessionTemplate[] = [
                 key: 'B.rp-pike',
                 exerciseId: 'pike-pushup',
                 name: 'Rest-pause pike push-ups',
+                basedOn: 'B.pike',
                 sets: { min: 1, max: 1 },
                 reps: { min: 1, max: 30 },
                 rir: { min: 0, max: 0 },
@@ -442,6 +445,12 @@ export function getVariant(template: SessionTemplate, variantId?: string) {
   return template.variants.find((v) => v.id === variantId) ?? template.variants[0];
 }
 
+/** The rest-pause finisher options of a session (first is the default), or none. */
+export function restPauseOptions(templateId: TemplateId, variantId?: string): Prescription[] {
+  const block = getVariant(getTemplate(templateId), variantId).blocks.find((b) => b.kind === 'rest-pause');
+  return block?.kind === 'rest-pause' ? block.exercises : [];
+}
+
 /** All prescriptions across the program, by slot key. */
 export const PRESCRIPTIONS: Record<string, Prescription> = Object.fromEntries(
   TEMPLATES.flatMap((t) =>
@@ -464,14 +473,13 @@ export interface PullupStage {
   /** Kg added when entering the stage. */
   addKg?: number;
   loadable?: boolean;
-  /** Stage 0: add one rep to one set each session instead of double progression. */
-  oneRepPerWeek?: boolean;
   /** Sessions at the top of range needed before advancing. */
   confirmSessions?: number;
 }
 
 export const PULLUP_ROADMAP: PullupStage[] = [
-  { id: '4x3-5', label: '4 × 3 → 4 × 5', sets: 4, reps: { min: 3, max: 5 }, oneRepPerWeek: true },
+  // "+1 rep to one set weekly" is the generic rule: add a rep to the weakest set.
+  { id: '4x3-5', label: '4 × 3 → 4 × 5', sets: 4, reps: { min: 3, max: 5 } },
   { id: '3x6-8', label: '3 × 6–8', sets: 3, reps: { min: 6, max: 8 } },
   { id: '3x8', label: 'Own 3 × 8', sets: 3, reps: { min: 8, max: 8 }, confirmSessions: 2 },
   { id: 'w3x5', label: '+2.5 kg · 3 × 5', sets: 3, reps: { min: 5, max: 5 }, addKg: 2.5, loadable: true },

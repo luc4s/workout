@@ -5,7 +5,7 @@ import { PRESCRIPTIONS } from '../../data/program';
 import type { ExerciseId } from '../../data/types';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type Settings } from '../../db/db';
-import { Sheet, Stepper } from '../../components/controls';
+import { Sheet, Stepper, VariationSelect } from '../../components/controls';
 import { IconCheck } from '../../components/icons';
 import { formatClock } from '../../hooks/useNow';
 import { isLoadable, LOAD_STEP_KG, rangeText, variationOf } from '../../logic/progression';
@@ -14,6 +14,7 @@ import { stepElapsedMs, type RunnerAction, type RunnerState } from '../../logic/
 import { logSet } from '../../logic/session';
 import { remainingSetsOf, type WorkStep } from '../../logic/steps';
 import { GuideContent } from '../GuideContent';
+import { RestPauseSwitch } from './RestPauseSwitch';
 
 export function exerciseForStep(state: RunnerState, step: { slot: string; exerciseId: ExerciseId }): ExerciseId {
   const p = PRESCRIPTIONS[step.slot];
@@ -27,6 +28,21 @@ export function loadFor(state: RunnerState, step: { slot: string }): number | un
   // Session A pull-up loading follows the roadmap stage, which decided whether a load was planned.
   const loadable = step.slot === 'A.pullup' ? plan.loadKg !== undefined : isLoadable(PRESCRIPTIONS[step.slot], plan.variationId);
   return loadable ? plan.loadKg ?? 0 : undefined;
+}
+
+/** True when the variation was changed during the session, so the planned targets no longer apply. */
+export function variationChanged(state: RunnerState, slot: string): boolean {
+  const p = PRESCRIPTIONS[slot];
+  const planned = state.suggestions[slot]?.plan.variationId;
+  const current = state.plans[slot]?.variationId ?? p?.defaultVariation;
+  return !!p?.variations && planned !== undefined && current !== planned;
+}
+
+/** Rep target for a work step (undefined for rest-pause mini-sets, which have no fixed target). */
+export function targetFor(state: RunnerState, step: WorkStep): number | undefined {
+  if (step.restPause) return undefined;
+  if (variationChanged(state, step.slot)) return step.reps.min;
+  return state.suggestions[step.slot]?.repsTarget[step.setNumber - 1];
 }
 
 interface Form {
@@ -51,7 +67,8 @@ export function WorkView(props: {
   const suggestion = state.suggestions[step.slot];
   const last = state.lastTime[step.slot];
   const idx = (step.restPause?.mini ?? step.setNumber) - 1;
-  const target = step.restPause ? undefined : suggestion?.repsTarget[idx];
+  const target = targetFor(state, step);
+  const changedVariation = variationChanged(state, step.slot);
   const loadable = loadFor(state, step) !== undefined;
   const loadStep = (useLiveQuery(() => db.kv.get('settings'), [])?.value as Settings | undefined)?.loadStep || LOAD_STEP_KG;
   const exerciseId = exerciseForStep(state, step);
@@ -133,25 +150,23 @@ export function WorkView(props: {
             </span>
           )}
         </div>
-        {suggestion && !step.restPause && step.setNumber === 1 && <div className="coach">{suggestion.message}</div>}
+        {changedVariation && !step.restPause ? (
+          <div className="coach">New variation — start at the bottom of the range ({step.reps.min}).</div>
+        ) : (
+          suggestion && !step.restPause && step.setNumber === 1 && <div className="coach">{suggestion.message}</div>
+        )}
         {step.restPause && (
           <div className="coach">
             {step.restPause.mini === 1 ? 'Go to ~0 RIR, then rest 15–20 s.' : 'Rep out again — stop when form breaks.'}
           </div>
         )}
+        {step.restPause?.mini === 1 && !done && <RestPauseSwitch state={state} slot={step.slot} dispatch={dispatch} />}
         {p.variations && (
-          <select
-            className="input"
+          <VariationSelect
+            variations={p.variations}
             value={plan.variationId ?? p.defaultVariation}
-            onChange={(e) => dispatch({ type: 'plan', slot: step.slot, plan: { variationId: e.target.value } })}
-            aria-label="Variation"
-          >
-            {p.variations.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.name}
-              </option>
-            ))}
-          </select>
+            onChange={(id) => dispatch({ type: 'plan', slot: step.slot, plan: { variationId: id } })}
+          />
         )}
 
         <button type="button" className="work-anim" onClick={() => setGuideOpen(true)} aria-label="Open technique guide">
@@ -184,7 +199,9 @@ export function WorkView(props: {
             <span className="k">Last time</span>
             <b className="num">{lastReps ?? '—'}</b>
             <span className="u">
-              {last ? `${relativeDay(last.at, now)}${last.loadKg ? ` · +${last.loadKg} kg` : ''}` : 'first time'}
+              {last
+                ? `${relativeDay(last.at, now)}${last.loadKg ? ` · +${last.loadKg} kg` : ''}${last.flag ? ` · ${last.flag === 'bad-day' ? 'bad day' : 'deload'}` : ''}`
+                : 'first time'}
             </span>
           </div>
         </div>

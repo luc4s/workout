@@ -31,13 +31,15 @@ export interface SideAnim {
   caption?: string;
 }
 
-/** Front view: used for movements whose key motion is lateral (archer push-up). */
+/** Front view: used for movements whose key motion is lateral (archer push-up, archer squat). */
 export interface FrontPose {
   shoulderL: Vec;
   shoulderR: Vec;
   handL: Vec;
   handR: Vec;
   head: Vec;
+  /** Standing figures: hips and feet; knees are solved, bending out toward the viewer. */
+  legs?: { hipL: Vec; hipR: Vec; footL: Vec; footR: Vec };
 }
 
 export interface FrontAnim {
@@ -351,6 +353,23 @@ const archer = (shift: number, depth: number): FrontPose => {
   };
 };
 
+/* ---------------- archer squat (front view) ---------------- */
+
+const archerSquat = (shift: number, depth: number): FrontPose => {
+  const cx = 120 + shift * 38;
+  const hy = 129 + depth * 46;
+  // The torso leans forward at the bottom, so it looks shorter from the front.
+  const sy = hy - 52 + depth * 14;
+  return {
+    shoulderL: [cx - 17, sy],
+    shoulderR: [cx + 17, sy],
+    handL: [cx - 8, sy + 14],
+    handR: [cx + 8, sy + 14],
+    head: [cx, sy - 16],
+    legs: { hipL: [cx - 10, hy], hipR: [cx + 10, hy], footL: [70, 200], footR: [170, 200] },
+  };
+};
+
 export const ANIMS: Record<ExerciseId, ExerciseAnim> = {
   'joint-circles': {
     view: 'side',
@@ -578,6 +597,21 @@ export const ANIMS: Record<ExerciseId, ExerciseAnim> = {
       { at: 3, pose: archer(0, 0), label: 'Switch sides' },
       { at: 5, pose: archer(1, 1), label: 'Other arm stays straight' },
       { at: 5.2, pose: archer(1, 1), label: 'Press back to centre' },
+    ],
+  },
+  'archer-squat': {
+    view: 'front',
+    viewBox: [20, 44, 200, 164],
+    floorY: 200,
+    duration: 6,
+    caption: 'Front view',
+    keyframes: [
+      { at: 0, pose: archerSquat(0, 0), label: 'Wide stance, sit over one leg ~2 s' },
+      { at: 2, pose: archerSquat(-1, 1), label: 'Other leg straight, foot flat' },
+      { at: 2.2, pose: archerSquat(-1, 1), label: 'Drive up through the heel' },
+      { at: 3, pose: archerSquat(0, 0), label: 'Switch sides' },
+      { at: 5, pose: archerSquat(1, 1), label: 'Other leg straight, foot flat' },
+      { at: 5.2, pose: archerSquat(1, 1), label: 'Drive up through the heel' },
     ],
   },
   'pistol-squat': {

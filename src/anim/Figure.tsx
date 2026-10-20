@@ -177,31 +177,59 @@ function renderFront(anim: Extract<ExerciseAnim, { view: 'front' }>, t: number, 
       break;
     }
   }
-  const arm = (s: Vec, h: Vec, out: number): Vec[] => {
-    const l1 = SEG.upperArm;
-    const l2 = SEG.forearm;
-    const dx = h[0] - s[0];
-    const dy = h[1] - s[1];
-    const d = Math.min(l1 + l2 - 0.01, Math.hypot(dx, dy));
-    const ux = dx / Math.hypot(dx, dy);
-    const uy = dy / Math.hypot(dx, dy);
-    const along = (l1 * l1 - l2 * l2 + d * d) / (2 * d);
-    const hgt = Math.sqrt(Math.max(0, l1 * l1 - along * along));
-    // bend the elbow outward (away from the body centre) and upward
-    const px = uy * out;
-    const py = -ux * out;
-    return [s, [s[0] + ux * along + px * hgt, s[1] + uy * along + py * hgt], h];
+  // bend the elbow outward (away from the body centre) and upward
+  const arm = (s: Vec, h: Vec, out: number): Vec[] => twoBone(s, h, SEG.upperArm, SEG.forearm, out);
+  // Knees point forward, toward the viewer: solve the leg in the image plane, then flatten the
+  // sideways bend so the knee stays roughly over the foot.
+  const leg = (hip: Vec, foot: Vec, out: number): Vec[] => {
+    const [s, knee, f] = twoBone(hip, foot, SEG.thigh, SEG.shin, out);
+    const mid: Vec = [(hip[0] + foot[0]) / 2, (hip[1] + foot[1]) / 2];
+    return [s, [mid[0] + (knee[0] - mid[0]) * 0.35, mid[1] + (knee[1] - mid[1]) * 0.35], f];
   };
+  const legs = pose.legs;
+  const mid = (a: Vec, b: Vec): Vec => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
   const svg = (
-    <svg viewBox={anim.viewBox.join(' ')} role="img" aria-label={label ?? 'archer push-up'} className="figure-svg">
+    <svg viewBox={anim.viewBox.join(' ')} role="img" aria-label={label ?? anim.caption ?? 'exercise'} className="figure-svg">
       {line([-100, anim.floorY + 3], [400, anim.floorY + 3], pal.prop, 3)}
+      {legs && (
+        <>
+          {poly(leg(legs.hipL, legs.footL, -1), pal.body)}
+          {poly(leg(legs.hipR, legs.footR, 1), pal.body)}
+          {line(legs.hipL, legs.hipR, pal.body, W + 2)}
+          {line(mid(pose.shoulderL, pose.shoulderR), mid(legs.hipL, legs.hipR), pal.body, W + 4)}
+        </>
+      )}
       {line(pose.shoulderL, pose.shoulderR, pal.body, W + 2)}
-      {poly(arm(pose.shoulderL, pose.handL, -1), pal.body)}
-      {poly(arm(pose.shoulderR, pose.handR, 1), pal.body)}
+      {legs ? (
+        <>
+          {/* Arms reach forward for balance — foreshortened from the front. */}
+          {line(pose.shoulderL, pose.handL, pal.body)}
+          {line(pose.shoulderR, pose.handR, pal.body)}
+        </>
+      ) : (
+        <>
+          {poly(arm(pose.shoulderL, pose.handL, -1), pal.body)}
+          {poly(arm(pose.shoulderR, pose.handR, 1), pal.body)}
+        </>
+      )}
       <circle cx={pose.head[0]} cy={pose.head[1]} r={SEG.headR} fill={pal.body} />
     </svg>
   );
   return { svg, label };
+}
+
+/** Two-bone chain from `s` to `e`; the middle joint bends to the `out` side of the line. */
+function twoBone(s: Vec, e: Vec, l1: number, l2: number, out: number): Vec[] {
+  const dx = e[0] - s[0];
+  const dy = e[1] - s[1];
+  const d = Math.min(l1 + l2 - 0.01, Math.hypot(dx, dy));
+  const ux = dx / Math.hypot(dx, dy);
+  const uy = dy / Math.hypot(dx, dy);
+  const along = (l1 * l1 - l2 * l2 + d * d) / (2 * d);
+  const hgt = Math.sqrt(Math.max(0, l1 * l1 - along * along));
+  const px = uy * out;
+  const py = -ux * out;
+  return [s, [s[0] + ux * along + px * hgt, s[1] + uy * along + py * hgt], e];
 }
 
 function lerpFront(a: FrontPose, b: FrontPose, t: number): FrontPose {
@@ -212,6 +240,15 @@ function lerpFront(a: FrontPose, b: FrontPose, t: number): FrontPose {
     handL: l(a.handL, b.handL),
     handR: l(a.handR, b.handR),
     head: l(a.head, b.head),
+    legs:
+      a.legs && b.legs
+        ? {
+            hipL: l(a.legs.hipL, b.legs.hipL),
+            hipR: l(a.legs.hipR, b.legs.hipR),
+            footL: l(a.legs.footL, b.legs.footL),
+            footR: l(a.legs.footR, b.legs.footR),
+          }
+        : a.legs,
   };
 }
 

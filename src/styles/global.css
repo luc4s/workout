@@ -521,6 +521,26 @@ textarea.input {
   width: 100%;
 }
 
+.variation-pick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.variation-pick > span {
+  flex: none;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+}
+
+.variation-pick > select {
+  flex: 1;
+  min-width: 0;
+}
+
 textarea.input {
   min-height: 72px;
   resize: vertical;

@@ -7,7 +7,8 @@ import { formatClock } from '../../hooks/useNow';
 import { rangeText } from '../../logic/progression';
 import { restRemainingSec, type RunnerAction, type RunnerState } from '../../logic/runner';
 import { nextWorkStep, type RestStep, type WorkStep } from '../../logic/steps';
-import { exerciseForStep, loadFor } from './WorkView';
+import { exerciseForStep, loadFor, targetFor } from './WorkView';
+import { RestPauseSwitch } from './RestPauseSwitch';
 
 function prevWorkStep(state: RunnerState): WorkStep | undefined {
   for (let i = state.index - 1; i >= 0; i--) {
@@ -67,12 +68,13 @@ export function RestView(props: { state: RunnerState; step: RestStep; dispatch: 
               {next.restPause ? `Mini-set ${next.restPause.mini}/${next.restPause.of}` : `Set ${next.setNumber}/${next.totalSets}`}
             </span>
             <span>
-              <b>{state.suggestions[next.slot]?.repsTarget[next.setNumber - 1] ?? rangeText(next.reps)}</b> reps{next.perSide ? ' / leg' : ''}
+              <b>{targetFor(state, next) ?? rangeText(next.reps)}</b> reps{next.perSide ? ' / leg' : ''}
             </span>
             <span>
               <b>{rangeText(next.rir)}</b> RIR
             </span>
           </div>
+          {next.restPause?.mini === 1 && !state.done[next.id] && <RestPauseSwitch state={state} slot={next.slot} dispatch={dispatch} />}
           {(() => {
             const last = state.lastTime[next.slot];
             if (!last?.reps.length) return null;

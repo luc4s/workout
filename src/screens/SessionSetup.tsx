@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { getTemplate, getVariant } from '../data/program';
+import { getTemplate, getVariant, restPauseOptions } from '../data/program';
 import type { Prescription, TemplateId } from '../data/types';
 import { db } from '../db/db';
-import { Chips, Note, ToggleRow } from '../components/controls';
+import { Chips, Note, ToggleRow, VariationSelect } from '../components/controls';
 import { IconCheck } from '../components/icons';
 import { formatClock } from '../hooks/useNow';
-import { isLoadable, LOAD_STEP_KG, rangeText, type Suggestion } from '../logic/progression';
+import { isLoadable, LOAD_STEP_KG, rangeText, suggestRestPause, type RestPauseChoice, type Suggestion } from '../logic/progression';
 import type { SlotPlan } from '../logic/runner';
 import { warningsFor } from '../logic/schedule';
-import { prepareSession, startSession, type Preparation, type SessionOptions } from '../logic/session';
+import { lastRestPauseSlot, prepareSession, startSession, type Preparation, type SessionOptions } from '../logic/session';
 import { estimateDurationSec } from '../logic/steps';
 
 export default function SessionSetup() {
@@ -21,17 +21,24 @@ export default function SessionSetup() {
   const [finisher, setFinisher] = useState(true);
   const [badDay, setBadDay] = useState(false);
   const [deload, setDeload] = useState(false);
-  const [restPauseSlot, setRestPauseSlot] = useState('B.rp-row');
+  const rpOptions = restPauseOptions(template.id, variantId);
+  const [restPauseSlot, setRestPauseSlot] = useState(rpOptions[0]?.key);
+  const [rpPicked, setRpPicked] = useState(false);
+  const [rpChoice, setRpChoice] = useState<RestPauseChoice>();
   const [prep, setPrep] = useState<Preparation>();
-  const [plans, setPlans] = useState<Record<string, SlotPlan>>({});
+  const [prepOpts, setPrepOpts] = useState<SessionOptions>();
+  /** Variations picked here; they feed back into the suggestions so targets match the variation. */
+  const [variations, setVariations] = useState<Record<string, string>>({});
+  /** Weights picked here, on top of the suggested plans. */
+  const [loads, setLoads] = useState<Record<string, number>>({});
   const [ready, setReady] = useState<Record<string, boolean>>({});
   const [starting, setStarting] = useState(false);
   const sessions = useLiveQuery(() => db.sessions.toArray(), []);
   const runner = useLiveQuery(() => db.kv.get('runner'), []);
 
   const opts: SessionOptions = useMemo(
-    () => ({ templateId: template.id, variantId, flags: { badDay, deload, finisher }, restPauseSlot }),
-    [template.id, variantId, badDay, deload, finisher, restPauseSlot],
+    () => ({ templateId: template.id, variantId, flags: { badDay, deload, finisher }, restPauseSlot, variations }),
+    [template.id, variantId, badDay, deload, finisher, restPauseSlot, variations],
   );
 
   useEffect(() => {
@@ -39,12 +46,34 @@ export default function SessionSetup() {
     prepareSession(opts).then((p) => {
       if (cancelled) return;
       setPrep(p);
-      setPlans(p.plans);
+      setPrepOpts(opts);
     });
     return () => {
       cancelled = true;
     };
   }, [opts]);
+
+  const plans: Record<string, SlotPlan> = Object.fromEntries(
+    Object.entries(prep?.plans ?? {}).map(([k, plan]) => [
+      k,
+      { ...plan, ...(variations[k] ? { variationId: variations[k] } : {}), ...(loads[k] !== undefined ? { loadKg: loads[k] } : {}) },
+    ]),
+  );
+  // Default the rest-pause finisher to the suggested one until the user picks.
+  useEffect(() => {
+    if (!prep || rpOptions.length < 2) return;
+    let cancelled = false;
+    lastRestPauseSlot(rpOptions.map((o) => o.key)).then((lastSlot) => {
+      if (cancelled) return;
+      const stalls = Object.fromEntries(rpOptions.map((o) => [o.basedOn ?? '', !!prep.suggestions[o.basedOn ?? '']?.stall]));
+      const c = suggestRestPause(rpOptions, { stalls, today: [], lastSlot });
+      setRpChoice(c);
+      if (c && !rpPicked) setRestPauseSlot(c.slot);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [prep]);
 
   const variant = getVariant(template, variantId);
   const warnings = sessions ? warningsFor(template.id, sessions, Date.now()) : [];
@@ -59,8 +88,11 @@ export default function SessionSetup() {
   const weighted = visible.filter((p) => isLoadable(p, plans[p.key]?.variationId));
   const loadStep = prep?.settings.loadStep || LOAD_STEP_KG;
 
+  // Don't start from a plan that is still being recomputed for the latest choices.
+  const upToDate = !!prep && prepOpts === opts && (rpOptions.length < 2 || !!rpChoice);
+
   const start = async () => {
-    if (!prep) return;
+    if (!prep || !upToDate) return;
     setStarting(true);
     // A weight picked here that differs from the suggestion restarts that exercise at the bottom of its range.
     const suggestions: Record<string, Suggestion> = { ...prep.suggestions };
@@ -73,6 +105,19 @@ export default function SessionSetup() {
           kind: 'changed',
           repsTarget: s.repsTarget.map(() => p.reps.min),
           message: `Weight set to ${kg} kg — start at the bottom of the range (${p.reps.min}).`,
+        };
+      }
+    }
+    // Declining a suggested move to the next variation: repeat the top of the range on the current one.
+    for (const p of visible) {
+      const s = suggestions[p.key];
+      if (s?.kind === 'next-variation' && plans[p.key]?.variationId !== s.plan.variationId) {
+        suggestions[p.key] = {
+          ...s,
+          kind: 'hold',
+          plan: { ...s.plan, variationId: plans[p.key]?.variationId },
+          repsTarget: s.repsTarget.map(() => p.reps.max),
+          message: `Staying on this variation — aim for ${p.reps.max} on every set again.`,
         };
       }
     }
@@ -131,7 +176,7 @@ export default function SessionSetup() {
                       last={prep.lastTime[p.key]?.loadKg}
                       ready={!!ready[p.key]}
                       onReady={() => setReady((s) => ({ ...s, [p.key]: !s[p.key] }))}
-                      onChange={(kg) => setPlans((s) => ({ ...s, [p.key]: { ...s[p.key], loadKg: kg } }))}
+                      onChange={(kg) => setLoads((s) => ({ ...s, [p.key]: kg }))}
                     />
                   ))}
                   <div className="faint" style={{ fontSize: 14 }}>
@@ -172,15 +217,20 @@ export default function SessionSetup() {
                     onChange={setFinisher}
                   />
                 )}
-                {template.id === 'B' && finisher && (
-                  <Chips
-                    options={[
-                      { id: 'B.rp-row', label: 'Rest-pause rows' },
-                      { id: 'B.rp-pike', label: 'Rest-pause pike push-ups' },
-                    ]}
-                    value={restPauseSlot}
-                    onChange={setRestPauseSlot}
-                  />
+                {rpOptions.length > 1 && finisher && (
+                  <>
+                    <Chips
+                      options={rpOptions.map((o) => ({ id: o.key, label: `${o.name}${rpChoice?.slot === o.key ? ' ★' : ''}` }))}
+                      value={restPauseSlot}
+                      onChange={(v) => {
+                        setRpPicked(true);
+                        setRestPauseSlot(v);
+                      }}
+                    />
+                    <div className="faint" style={{ fontSize: 14 }}>
+                      {rpChoice && <>★ {rpChoice.reason} </>}You can still switch during the session.
+                    </div>
+                  </>
                 )}
               </>
             )}
@@ -203,7 +253,7 @@ export default function SessionSetup() {
                     message={prep.suggestions[p.key]?.message}
                     target={prep.suggestions[p.key]?.repsTarget}
                     plan={plans[p.key] ?? {}}
-                    onPlan={(plan) => setPlans((s) => ({ ...s, [p.key]: { ...s[p.key], ...plan } }))}
+                    onVariation={(id) => setVariations((s) => ({ ...s, [p.key]: id }))}
                   />
                 ))}
             </div>
@@ -212,7 +262,7 @@ export default function SessionSetup() {
       </div>
 
       <div style={{ position: 'sticky', bottom: 16 }}>
-        <button className="btn primary huge block" onClick={start} disabled={!prep || starting || !!runner?.value} style={{ boxShadow: '0 8px 24px rgb(0 0 0 / 0.2)' }}>
+        <button className="btn primary huge block" onClick={start} disabled={!upToDate || starting || !!runner?.value} style={{ boxShadow: '0 8px 24px rgb(0 0 0 / 0.2)' }}>
           Start {template.shortName.toLowerCase()} session
         </button>
       </div>
@@ -226,9 +276,9 @@ function PlanRow(props: {
   message?: string;
   target?: number[];
   plan: SlotPlan;
-  onPlan: (plan: SlotPlan) => void;
+  onVariation: (id: string) => void;
 }) {
-  const { p, sets, message, target, plan, onPlan } = props;
+  const { p, sets, message, target, plan, onVariation } = props;
   const loadable = isLoadable(p, plan.variationId);
   return (
     <div className="stack tight">
@@ -250,19 +300,7 @@ function PlanRow(props: {
         </div>
       )}
       {p.variations && (
-        <select
-          className="input"
-          value={plan.variationId ?? p.defaultVariation}
-          onChange={(e) => onPlan({ variationId: e.target.value })}
-          aria-label={`${p.name} variation`}
-        >
-          {p.variations.map((v) => (
-            <option key={v.id} value={v.id}>
-              {v.name}
-              {v.alt ? ' (alternative)' : ''}
-            </option>
-          ))}
-        </select>
+        <VariationSelect variations={p.variations} value={plan.variationId ?? p.defaultVariation} onChange={onVariation} />
       )}
     </div>
   );

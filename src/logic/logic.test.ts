@@ -1,11 +1,12 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'vitest';
-import { getTemplate, PRESCRIPTIONS } from '../data/program';
+import { getTemplate, PRESCRIPTIONS, restPauseOptions } from '../data/program';
 import { DEFAULT_SETTINGS, db, type SessionRecord, type SetRecord, type Settings } from '../db/db';
 import { exportBackup, importBackup } from '../db/backup';
-import { applyStage, detectStall, suggest, type SlotSession } from './progression';
+import { applyStage, detectStall, suggest, suggestRestPause, type SlotSession } from './progression';
 import { createRunner, intervalPosition, restRemainingSec, runnerReducer, sessionElapsedMs } from './runner';
 import { suggestNext, warningsFor } from './schedule';
+import { lastRestPauseSlot, prepareSession } from './session';
 import { buildSteps, dropRemainingSets, type Step, type WorkStep } from './steps';
 
 const OPTS = { finisher: false, deload: false, badDay: false };
@@ -112,6 +113,24 @@ describe('runner', () => {
     expect(sessionElapsedMs(s, t0 + 100_000)).toBe(40_000);
   });
 
+  it('the rest-pause finisher can be switched until its first mini-set is logged', () => {
+    let s = createRunner({
+      sessionId: 2,
+      templateId: 'B',
+      variantId: 'standard',
+      flags: { badDay: false, deload: false, finisher: true },
+      steps: buildSteps(getTemplate('B'), undefined, { ...OPTS, finisher: true, restPauseSlot: 'B.rp-row' }),
+      plans: {},
+      now: t0,
+    });
+    s = runnerReducer(s, { type: 'swapRestPause', slot: 'B.rp-pike' });
+    const rp = works(s.steps).filter((w) => w.restPause);
+    expect(rp.map((w) => w.id)).toEqual(['rp:B.rp-pike#1', 'rp:B.rp-pike#2', 'rp:B.rp-pike#3']);
+    expect(rp.every((w) => w.slot === 'B.rp-pike' && w.exerciseId === 'pike-pushup')).toBe(true);
+    s = runnerReducer(s, { type: 'complete', stepId: rp[0].id, now: t0 });
+    expect(runnerReducer(s, { type: 'swapRestPause', slot: 'B.rp-row' })).toBe(s);
+  });
+
   it('complete marks done and advances', () => {
     let s = runnerReducer(make(), { type: 'next', now: t0 });
     s = runnerReducer(s, { type: 'complete', stepId: s.steps[1].id, now: t0 + 5000 });
@@ -211,6 +230,42 @@ describe('progression', () => {
     expect(suggest(p2, 3, twice, st2, ctx).kind).toBe('stage-up');
   });
 
+  it('pull-up stage change: targets start at the new minimum and the message quotes what was done', () => {
+    const p1 = applyStage(PRESCRIPTIONS['A.pullup'], { pullupStage: 1 });
+    const h = [slotSession(1, 0, [5, 5, 5, 5], { slot: 'A.pullup', exerciseId: 'pullup' })];
+    const s = suggest(p1, 3, h, { ...DEFAULT_SETTINGS, pullupStage: 1 }, ctx);
+    expect(s.repsTarget).toEqual([6, 6, 6]);
+    expect(s.message).toContain('5-5-5-5 (4 sets)');
+    expect(s.message).toContain('6-6-6');
+    expect(s.basisSessionId).toBe(1);
+  });
+
+  it('the message shows the reps actually done when sets were skipped', () => {
+    const p0 = applyStage(PRESCRIPTIONS['A.pullup'], { pullupStage: 0 });
+    const s = suggest(p0, 4, [slotSession(1, 0, [5, 5, 4], { slot: 'A.pullup' })], DEFAULT_SETTINGS, ctx);
+    expect(s.repsTarget).toEqual([5, 5, 4, 4]);
+    expect(s.message).toBe('Beat last time: 5-5-4 (3 sets) → 5-5-4-4.');
+  });
+
+  it('targets and "last time" come from the same session', () => {
+    const h = [
+      slotSession(2, 10, [5, 5, 5], { loadKg: 10, variationId: 'bar' }, { badDay: true }),
+      slotSession(1, 0, [7, 7, 6], { loadKg: 10, variationId: 'bar' }),
+    ];
+    expect(suggest(dip, 3, h, settings, ctx).basisSessionId).toBe(1);
+    expect(suggest(dip, 3, h, settings, { badDay: true, deload: false }).basisSessionId).toBe(2);
+  });
+
+  it('no stall after the roadmap drops from 4 to 3 sets', () => {
+    const p1 = applyStage(PRESCRIPTIONS['A.pullup'], { pullupStage: 1 });
+    const h = [
+      slotSession(3, 14 * DAY, [7, 6, 6], { slot: 'A.pullup' }),
+      slotSession(2, 7 * DAY, [6, 6, 6], { slot: 'A.pullup' }),
+      slotSession(1, 0, [5, 5, 5, 5], { slot: 'A.pullup' }),
+    ];
+    expect(detectStall(p1, h)).toBeUndefined();
+  });
+
   it('micro push-ups default to one notch easier than Session B', () => {
     const st = { ...DEFAULT_SETTINGS, variations: { 'B.pushup': 'archer' } };
     const s = suggest(PRESCRIPTIONS['M.pushup'], 2, [], st, ctx);
@@ -227,6 +282,33 @@ describe('progression', () => {
     expect(detectStall(dip, h)).toBe('add-set');
     expect(detectStall(dip, h.slice(0, 3).map((s, i) => ({ ...s, at: 30 - i })))).toBe('deload');
     expect(detectStall(dip, h.slice(2))).toBeUndefined();
+  });
+});
+
+describe('rest-pause suggestion', () => {
+  const options = restPauseOptions('B');
+  const none = { stalls: {}, today: [] };
+
+  it('prefers a stalled movement', () => {
+    expect(suggestRestPause(options, { ...none, stalls: { 'B.pike': true }, lastSlot: 'B.rp-pike' })?.slot).toBe('B.rp-pike');
+  });
+
+  it('then the movement with the most reps in reserve today', () => {
+    const today = [
+      { slot: 'B.row', rir: 0 },
+      { slot: 'B.row', rir: 1 },
+      { slot: 'B.pike', rir: 2 },
+      { slot: 'B.pike', rir: 1 },
+    ];
+    const c = suggestRestPause(options, { ...none, today });
+    expect(c?.slot).toBe('B.rp-pike');
+    expect(c?.reason).toMatch(/1\.5 RIR/);
+  });
+
+  it('then alternates with last time, defaulting to rows', () => {
+    expect(suggestRestPause(options, { ...none, lastSlot: 'B.rp-row' })?.slot).toBe('B.rp-pike');
+    expect(suggestRestPause(options, none)?.slot).toBe('B.rp-row');
+    expect(suggestRestPause(restPauseOptions('A'), none)).toBeUndefined();
   });
 });
 
@@ -267,4 +349,77 @@ describe('backup', () => {
     expect((await db.sets.get('7:A.dip#1'))?.reps).toBe(6);
     await expect(importBackup({ app: 'nope' })).rejects.toThrow();
   });
+
+  it('imports a backup written by the first release and plans sessions from it', async () => {
+    const res = await importBackup(JSON.parse(JSON.stringify(V1_BACKUP)));
+    expect(res).toEqual({ sessions: 2, sets: 9 });
+    const a = await prepareSession({ templateId: 'A', variantId: 'standard', flags: { badDay: false, deload: false, finisher: true } });
+    expect(a.suggestions['A.pullup'].repsTarget).toEqual([5, 5, 4, 4]);
+    expect(a.lastTime['A.pullup'].reps).toEqual([5, 4, 4, 4]);
+    const b = await prepareSession({
+      templateId: 'B',
+      variantId: 'standard',
+      flags: { badDay: false, deload: false, finisher: true },
+      restPauseSlot: 'B.rp-row',
+    });
+    expect(b.suggestions['B.pistol'].plan.variationId).toBe('box');
+    expect(b.suggestions['B.pistol'].repsTarget).toEqual([9, 8, 8]);
+    expect(await lastRestPauseSlot(['B.rp-row', 'B.rp-pike'])).toBe('B.rp-row');
+  });
 });
+
+/** Backup in the format the app has written since its first release — must always import. */
+const V1_BACKUP = {
+  app: 'workout',
+  version: 1,
+  exportedAt: 1_760_000_000_000,
+  sessions: [
+    { id: 1, templateId: 'A', variantId: 'standard', startedAt: 1_759_000_000_000, endedAt: 1_759_003_000_000, flags: { badDay: false, deload: false, finisher: true } },
+    { id: 2, templateId: 'B', variantId: 'standard', startedAt: 1_759_200_000_000, endedAt: 1_759_203_000_000, flags: { badDay: false, deload: false, finisher: true } },
+  ],
+  sets: [
+    ...[5, 4, 4, 4].map((reps, i) => ({
+      id: `1:A.pullup#${i + 1}`,
+      sessionId: 1,
+      templateId: 'A',
+      slot: 'A.pullup',
+      exerciseId: 'pullup',
+      setNumber: i + 1,
+      reps,
+      rir: 2,
+      durationSec: 20,
+      completedAt: 1_759_000_100_000 + i,
+    })),
+    ...[8, 8, 8].map((reps, i) => ({
+      id: `2:B.pistol#${i + 1}`,
+      sessionId: 2,
+      templateId: 'B',
+      slot: 'B.pistol',
+      exerciseId: 'pistol-squat',
+      variationId: 'box',
+      setNumber: i + 1,
+      reps,
+      repsLeft: reps,
+      repsRight: reps + 1,
+      rir: 1,
+      completedAt: 1_759_200_100_000 + i,
+    })),
+    ...[12, 5].map((reps, i) => ({
+      id: `2:rp:B.rp-row#${i + 1}`,
+      sessionId: 2,
+      templateId: 'B',
+      slot: 'B.rp-row',
+      exerciseId: 'inverted-row',
+      setNumber: i + 1,
+      reps,
+      rir: 0,
+      completedAt: 1_759_200_900_000 + i,
+    })),
+  ],
+  kv: [
+    {
+      key: 'settings',
+      value: { pullupMax: 6, pullupStage: 0, variations: { 'B.pistol': 'box' }, loads: {}, restScale: 1, loadStep: 2.5 },
+    },
+  ],
+};

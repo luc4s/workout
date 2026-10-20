@@ -1,6 +1,7 @@
+import { PRESCRIPTIONS } from '../data/program';
 import type { TemplateId } from '../data/types';
 import type { SessionFlags } from '../db/db';
-import { dropRemainingSets, type Step } from './steps';
+import { dropRemainingSets, swapRestPause, type Step } from './steps';
 import type { Suggestion } from './progression';
 
 export interface LastTime {
@@ -8,6 +9,8 @@ export interface LastTime {
   reps: number[];
   loadKg?: number;
   variationId?: string;
+  /** The session shown was a bad-day or deload session. */
+  flag?: 'bad-day' | 'deload';
 }
 
 export interface SlotPlan {
@@ -48,6 +51,7 @@ export type RunnerAction =
   | { type: 'adjustRest'; deltaSec: number }
   | { type: 'complete'; stepId: string; now: number }
   | { type: 'dropRemaining'; slot: string }
+  | { type: 'swapRestPause'; slot: string }
   | { type: 'plan'; slot: string; plan: SlotPlan }
   | { type: 'check'; key: string; value: boolean }
   | { type: 'restartStep'; now: number };
@@ -119,6 +123,12 @@ export function runnerReducer(state: RunnerState, action: RunnerAction): RunnerS
     }
     case 'dropRemaining':
       return { ...state, steps: dropRemainingSets(state.steps, state.index, action.slot) };
+    case 'swapRestPause': {
+      // Only before the first mini-set is logged.
+      const p = PRESCRIPTIONS[action.slot];
+      if (!p || state.steps.some((s) => s.kind === 'work' && s.restPause && state.done[s.id])) return state;
+      return { ...state, steps: swapRestPause(state.steps, p) };
+    }
     case 'plan':
       return { ...state, plans: { ...state.plans, [action.slot]: { ...state.plans[action.slot], ...action.plan } } };
     case 'check':
