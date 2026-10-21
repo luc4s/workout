@@ -1,12 +1,13 @@
 /** High-level coach calls: build the context pack, call Claude, parse the answer. */
 import type { TemplateId } from '../data/types';
 import type { SessionRecord, SetRecord, Settings } from '../db/db';
-import type { SessionOverview, SessionRecommendation, SessionReview, SetFeedback } from '../logic/coach';
+import type { SessionOverview, SessionRecommendation, SessionReview, SetFeedback, TrainingStats } from '../logic/coach';
 import type { RunnerState } from '../logic/runner';
 import { callCoach, type CoachDeps, type CoachResult } from './client';
-import { buildBriefContext, buildRestContext, buildReviewContext, slotsOfTemplate } from './context';
+import { buildAnalysisContext, buildBriefContext, buildRestContext, buildReviewContext, slotsOfTemplate } from './context';
 import { USER_PROMPTS } from './prompts';
-import { BRIEF_SCHEMA, parseBrief, parseRestNote, parseReview, REST_NOTE_SCHEMA, REVIEW_SCHEMA, type Brief, type RestNote, type Review } from './schema';
+import { ANALYSIS_SCHEMA, BRIEF_SCHEMA, parseAnalysis, parseBrief, parseRestNote, parseReview, REST_NOTE_SCHEMA, REVIEW_SCHEMA, type Analysis, type Brief, type RestNote, type Review } from './schema';
+import { PRESCRIPTIONS } from '../data/program';
 
 const json = (v: unknown) => JSON.stringify(v);
 
@@ -51,6 +52,19 @@ export function askReview(
   return callCoach(
     { id: `review:${input.session.id}:${input.now}`, kind: 'review', user: USER_PROMPTS.review + json(ctx), schema: REVIEW_SCHEMA as unknown as Record<string, unknown>, signal: input.signal },
     (raw) => parseReview(raw, slots),
+    deps,
+  );
+}
+
+export function askAnalysis(
+  input: { stats: TrainingStats; sessions: SessionRecord[]; sets: SetRecord[]; settings: Settings; now: number; signal?: AbortSignal },
+  deps?: CoachDeps,
+): Promise<CoachResult<Analysis>> {
+  const ctx = buildAnalysisContext(input);
+  const slots = Object.keys(PRESCRIPTIONS);
+  return callCoach(
+    { id: `analysis:${input.now}`, kind: 'analysis', user: USER_PROMPTS.analysis + json(ctx), schema: ANALYSIS_SCHEMA as unknown as Record<string, unknown>, signal: input.signal },
+    (raw) => parseAnalysis(raw, slots),
     deps,
   );
 }

@@ -19,8 +19,8 @@ function prevWorkStep(state: RunnerState): WorkStep | undefined {
   return undefined;
 }
 
-export function RestView(props: { state: RunnerState; step: RestStep; dispatch: (a: RunnerAction) => void; now: number }) {
-  const { state, step, dispatch, now } = props;
+export function RestView(props: { state: RunnerState; step: RestStep; dispatch: (a: RunnerAction) => void; now: number; coachPending?: Record<string, true> }) {
+  const { state, step, dispatch, now, coachPending } = props;
   const remaining = restRemainingSec(state, now);
   const total = step.durationSec + state.restExtraSec;
   const overtime = remaining <= 0;
@@ -39,7 +39,7 @@ export function RestView(props: { state: RunnerState; step: RestStep; dispatch: 
   const cue = note?.claude?.cue ?? note?.rule?.cue;
 
   return (
-    <div className={`rest-grid${overtime ? ' overtime' : ''}`}>
+    <div className={`rest-grid three${overtime ? ' overtime' : ''}`}>
       <section className="rest-timer">
         <div className="section-title">{step.label}</div>
         <TimerRing progress={overtime ? 1 : 1 - remaining / Math.max(1, total)} color={overtime ? 'var(--accent)' : 'var(--rest)'} size={360}>
@@ -59,7 +59,6 @@ export function RestView(props: { state: RunnerState; step: RestStep; dispatch: 
         <button className={`btn huge block ${overtime ? 'primary' : ''}`} onClick={() => dispatch({ type: 'next', now: Date.now() })}>
           <IconSkip width={26} height={26} /> {overtime ? 'Start next set' : 'Skip rest'}
         </button>
-        {note && <CoachNote state={state} note={note} dispatch={dispatch} />}
       </section>
 
       {next && next.kind === 'work' && (
@@ -128,6 +127,17 @@ export function RestView(props: { state: RunnerState; step: RestStep; dispatch: 
           <h2>{next.title}</h2>
         </section>
       )}
+      {!next && <section className="card next-card" />}
+      <section className={`card coach-col${note ? ` ${note.claude ? 'info' : note.rule?.tone ?? 'info'}` : ''}`}>
+        {note && prev ? (
+          <CoachNote state={state} step={prev} note={note} dispatch={dispatch} pending={!!coachPending?.[prev.id]} />
+        ) : (
+          <>
+            <div className="section-title">Coach</div>
+            <div className="muted">Log a set to get feedback here.</div>
+          </>
+        )}
+      </section>
     </div>
   );
 }

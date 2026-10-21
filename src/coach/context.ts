@@ -6,7 +6,7 @@
 import { getTemplate, PRESCRIPTIONS, PULLUP_ROADMAP, templateOfKey } from '../data/program';
 import type { TemplateId } from '../data/types';
 import type { SessionRecord, SetRecord, Settings } from '../db/db';
-import { restTakenBefore, type SessionOverview, type SessionRecommendation, type SessionReview, type SetFeedback } from '../logic/coach';
+import { restTakenBefore, type SessionOverview, type SessionRecommendation, type SessionReview, type SetFeedback, type TrainingStats } from '../logic/coach';
 import { clampStage, weeksSince } from '../logic/progression';
 import { sessionElapsedMs, type RunnerState } from '../logic/runner';
 import { ROTATION, sessionsInWeek, weekStart } from '../logic/schedule';
@@ -252,6 +252,40 @@ export function buildReviewContext(input: {
       targetMin: review.targetMin,
       sets: todaySets,
       ...(session.notes ? { notes: session.notes.slice(0, 500) } : {}),
+    },
+  };
+}
+
+/** Whole-history analysis: the rule layer's stats plus every completed session (newest first, capped). */
+export function buildAnalysisContext(input: { stats: TrainingStats; sessions: SessionRecord[]; sets: SetRecord[]; settings: Settings; now: number }): CoachContext {
+  const { stats, sessions, sets, settings, now } = input;
+  const d = (ts?: number) => (ts === undefined ? undefined : localDate(ts));
+  return {
+    today: dayLabel(now),
+    athlete: athlete(settings, sessions, now),
+    week: weekOf(sessions, now),
+    recent: recentSessions(sessions, sets, 60, undefined, true).map((r) => (r.notes ? { ...r, notes: r.notes.slice(0, 120) } : r)),
+    rules: {
+      sessions: stats.sessions,
+      firstSession: d(stats.firstAt),
+      lastSession: d(stats.lastAt),
+      weeks: stats.weeks,
+      sessionsPerWeekLast8: stats.perWeek,
+      adherence: stats.adherence,
+      byTemplate: stats.byTemplate,
+      weeksSinceDeload: stats.weeksSinceDeload,
+      rir: stats.rir,
+      stalls: stats.stalls.map((x) => ({ slot: x.slot, kind: x.stall })),
+      slots: stats.slots.map((x) => ({
+        slot: x.slot,
+        sessions: x.sessions,
+        first: { d: d(x.firstAt), ...x.first },
+        latest: { d: d(x.lastAt), ...x.latest },
+        trend: x.trend,
+        best: { reps: x.best.reps, v: x.best.variationId, kg: x.best.loadKg, d: d(x.best.at) },
+        timeline: x.timeline.map((t) => ({ d: d(t.d), score: t.score, meanReps: t.meanReps, kg: t.kg, v: t.v })),
+        stall: x.stall,
+      })),
     },
   };
 }

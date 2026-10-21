@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { getTemplate, PRESCRIPTIONS } from '../data/program';
 import { DEFAULT_SETTINGS, type SessionRecord, type SetRecord, type Settings } from '../db/db';
-import { findPrsIn, recommendSession, restTakenBefore, sessionOverview, sessionReview, setFeedback, stallsOf } from './coach';
+import { findPrsIn, recommendSession, restTakenBefore, sessionOverview, sessionReview, setFeedback, stallsOf, trainingStats } from './coach';
 import { applyStage, suggest, type Suggestion } from './progression';
 import { createRunner, runnerReducer, type LastTime, type RunnerState } from './runner';
 import type { Preparation } from './session';
@@ -274,6 +274,35 @@ describe('runner coach actions', () => {
   });
 });
 
+describe('dropping steps from a rest keeps the runner on a valid step', () => {
+  const t0 = monday;
+  const prep = prepA({}, DEFAULT_SETTINGS);
+
+  it('skip-finisher from the rest before the finisher lands on the last work step', () => {
+    let s = runnerA(prep, t0);
+    const lastRow = s.steps.findIndex((x) => x.id === 'A.row#3');
+    s = runnerReducer(s, { type: 'goto', index: lastRow, now: t0 });
+    s = runnerReducer(s, { type: 'complete', stepId: 'A.row#3', now: t0 }); // now on the rest before the finisher
+    expect(s.steps[s.index].kind).toBe('rest');
+    s = runnerReducer(s, { type: 'setFlags', flags: { finisher: false }, now: t0 });
+    expect(s.index).toBeLessThan(s.steps.length);
+    expect(s.steps[s.index]).toBeDefined();
+    expect(s.steps[s.index].id).toBe('A.row#3');
+    expect(s.steps.some((x) => x.kind === 'work' && x.slot === 'A.rollout')).toBe(false);
+  });
+
+  it('dropRemaining from a rest never leaves the index past the end', () => {
+    let s = runnerA(prep, t0);
+    const i = s.steps.findIndex((x) => x.id === 'A.rollout#1');
+    s = runnerReducer(s, { type: 'goto', index: i + 1, now: t0 }); // rest after rollout #1
+    expect(s.steps[s.index].kind).toBe('rest');
+    s = runnerReducer(s, { type: 'dropRemaining', slot: 'A.rollout' });
+    expect(s.steps[s.index]).toBeDefined();
+    expect(s.steps[s.steps.length - 1].id).toBe('A.rollout#1');
+    expect(s.index).toBe(s.steps.length - 1);
+  });
+});
+
 describe('sessionReview', () => {
   const settings: Settings = { ...DEFAULT_SETTINGS, loads: { 'A.dip': 10 }, variations: { 'A.dip': 'bar' } };
   const prev = session('A', monday - 7 * DAY);
@@ -334,5 +363,42 @@ describe('sessionReview', () => {
   it('stallsOf and findPrsIn are pure versions of the old helpers', () => {
     expect(stallsOf([...prevSets, ...curSets], [prev, cur], settings)).toEqual([]);
     expect(findPrsIn(curSets, [])).toEqual([]);
+  });
+});
+
+describe('trainingStats', () => {
+  const settings: Settings = { ...DEFAULT_SETTINGS, loads: { 'A.dip': 10 }, variations: { 'A.dip': 'bar' } };
+  const sessions: SessionRecord[] = [];
+  const sets: SetRecord[] = [];
+  // Four Session A over four weeks: dips climb from 6-6-6 to 8-8-8, pull-ups stay at 4-4-3-3.
+  for (let w = 4; w >= 1; w--) {
+    const s = session('A', monday - w * 7 * DAY);
+    sessions.push(s);
+    const r = 6 + (4 - w) * 0.7;
+    sets.push(...setsOf(s, 'A.dip', [Math.round(r), Math.round(r), Math.round(r)], { loadKg: 10, variationId: 'bar' }), ...setsOf(s, 'A.pullup', [4, 4, 3, 3], { rir: 0 }));
+  }
+  const st = trainingStats(sessions, sets, settings, monday);
+
+  it('summarises adherence, per-template counts and RIR habits', () => {
+    expect(st.sessions).toBe(4);
+    expect(st.weeks).toBe(5);
+    expect(st.perWeek.slice(-5)).toEqual([1, 1, 1, 1, 0]);
+    expect(st.adherence).toBeCloseTo(4 / 20, 2);
+    expect(st.byTemplate.A).toMatchObject({ count: 4, avgMin: 45, targetMin: 50, badDays: 0, deloads: 0 });
+    expect(st.byTemplate.B.count).toBe(0);
+    expect(st.rir).toEqual({ sets: 28, atFailure: 16, leftAtDefault: 12 });
+  });
+
+  it('gives each exercise a score timeline, a best set and a trend', () => {
+    const dip = st.slots.find((s) => s.slot === 'A.dip')!;
+    expect(dip.timeline).toHaveLength(4);
+    expect(dip.timeline[0].meanReps).toBe(6);
+    expect(dip.timeline[3].meanReps).toBe(8);
+    expect(dip.trend).toBe('up');
+    expect(dip.best).toMatchObject({ reps: 8, loadKg: 10, variationId: 'bar' });
+    const pull = st.slots.find((s) => s.slot === 'A.pullup')!;
+    expect(pull.trend).toBe('flat');
+    expect(pull.stall).toBeDefined();
+    expect(st.slots.some((s) => s.slot === 'B.pushup')).toBe(false);
   });
 });

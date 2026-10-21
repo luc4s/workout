@@ -102,6 +102,16 @@ export function createRunner(init: {
   };
 }
 
+/**
+ * Replace the step list, keeping the index valid: dropping the finisher from the rest just before
+ * it also removes that (now trailing) rest, so the index lands on the last remaining step.
+ */
+function withSteps(state: RunnerState, steps: Step[]): RunnerState {
+  if (steps === state.steps) return state;
+  const index = Math.max(0, Math.min(steps.length - 1, state.index));
+  return { ...state, steps, index };
+}
+
 function moveTo(state: RunnerState, index: number, now: number): RunnerState {
   const clamped = Math.max(0, Math.min(state.steps.length - 1, index));
   if (clamped === state.index) return state;
@@ -143,12 +153,12 @@ export function runnerReducer(state: RunnerState, action: RunnerAction): RunnerS
       return isCurrent && state.index < state.steps.length - 1 ? moveTo(next, state.index + 1, action.now) : next;
     }
     case 'dropRemaining':
-      return { ...state, steps: dropRemainingSets(state.steps, state.index, action.slot) };
+      return withSteps(state, dropRemainingSets(state.steps, state.index, action.slot));
     case 'swapRestPause': {
       // Only before the first mini-set is logged.
       const p = PRESCRIPTIONS[action.slot];
       if (!p || state.steps.some((s) => s.kind === 'work' && s.restPause && state.done[s.id])) return state;
-      return { ...state, steps: swapRestPause(state.steps, p) };
+      return withSteps(state, swapRestPause(state.steps, p));
     }
     case 'plan':
       return { ...state, plans: { ...state.plans, [action.slot]: { ...state.plans[action.slot], ...action.plan } } };
@@ -178,7 +188,7 @@ export function runnerReducer(state: RunnerState, action: RunnerAction): RunnerS
         next = { ...next, steps, suggestions, coach: { notes: {}, ...state.coach, badDaySince: state.steps[state.index]?.id } };
       }
       if (action.flags.finisher === false && state.flags.finisher) {
-        next = { ...next, steps: dropOptionalSteps(next.steps, state.index) };
+        next = withSteps(next, dropOptionalSteps(next.steps, state.index));
       }
       return next;
     }

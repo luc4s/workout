@@ -54,6 +54,8 @@ export const USER_PROMPTS = {
   brief: 'Pre-session brief for today. Context:\n',
   'rest-note': 'The athlete just logged a set and is resting. Write the rest-screen note. Context:\n',
   review: 'The session just ended. Write the review. Context:\n',
+  analysis:
+    'Analyse the athlete\'s whole training history: progression per exercise (use the score timelines: variation rank, load, mean reps), consistency against the weekly plan, session length against targets, bad-day / deload use, RIR habits, stalls, and what to change next. Be specific with dates and numbers. Context:\n',
 } as const;
 
 export const PING_PROMPT = 'Reply with the single word OK.';

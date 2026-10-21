@@ -60,6 +60,40 @@ export const REVIEW_SCHEMA = {
   additionalProperties: false,
 } as const;
 
+export const ANALYSIS_SCHEMA = {
+  type: 'object',
+  properties: {
+    headline: { type: 'string', description: 'At most 12 words' },
+    summary: { type: 'string', description: '3–5 sentences on where the training stands' },
+    trends: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: { slot: { type: 'string' }, trend: { type: 'string', enum: ['up', 'flat', 'down'] }, note: { type: 'string', description: 'One sentence with numbers' } },
+        required: ['slot', 'trend', 'note'],
+        additionalProperties: false,
+      },
+      description: 'One entry per exercise slot with history',
+    },
+    strengths: { type: 'array', items: { type: 'string' }, description: 'Up to 3' },
+    concerns: { type: 'array', items: { type: 'string' }, description: 'Up to 3' },
+    recommendations: { type: 'array', items: { type: 'string' }, description: 'Up to 4 concrete, prioritised actions' },
+    suggestions: { type: 'array', items: SUGGESTION, description: 'Up to 3' },
+  },
+  required: ['headline', 'summary', 'trends', 'strengths', 'concerns', 'recommendations', 'suggestions'],
+  additionalProperties: false,
+} as const;
+
+export interface Analysis {
+  headline: string;
+  summary: string;
+  trends: { slot: string; trend: 'up' | 'flat' | 'down'; note: string }[];
+  strengths: string[];
+  concerns: string[];
+  recommendations: string[];
+  suggestions: CoachSuggestion[];
+}
+
 export interface Brief {
   headline: string;
   readiness: 'go' | 'caution' | 'rest';
@@ -165,7 +199,7 @@ export function parseBrief(raw: unknown, slots: string[]): Brief | undefined {
 
 export function parseRestNote(raw: unknown, slots: string[]): RestNote | undefined {
   if (!isObj(raw)) return undefined;
-  const note = str(raw.note, 200);
+  const note = str(raw.note, 400);
   if (!note) return undefined;
   const cue = str(raw.cue, 60) || undefined;
   const suggestion = sanitizeSuggestion(raw.suggestion, slots);
@@ -185,6 +219,30 @@ export function parseReview(raw: unknown, slots: string[]): Review | undefined {
     highlights: strs(raw.highlights, 3, 200),
     concerns: strs(raw.concerns, 3, 200),
     perSlot,
+    suggestions: sanitizeSuggestions(raw.suggestions, slots, 3),
+  };
+}
+
+export function parseAnalysis(raw: unknown, slots: string[]): Analysis | undefined {
+  if (!isObj(raw)) return undefined;
+  const headline = str(raw.headline, 120);
+  const summary = str(raw.summary, 1200);
+  if (!headline || !summary) return undefined;
+  const trends = (Array.isArray(raw.trends) ? raw.trends : [])
+    .map((x: unknown) => {
+      if (!isObj(x)) return undefined;
+      const t = str(x.trend, 10)?.toLowerCase();
+      return { slot: str(x.slot, 40) ?? '', trend: (t === 'up' || t === 'down' ? t : 'flat') as 'up' | 'flat' | 'down', note: str(x.note, 300) ?? '' };
+    })
+    .filter((x): x is Analysis['trends'][number] => !!x && slots.includes(x.slot) && !!x.note)
+    .slice(0, 20);
+  return {
+    headline,
+    summary,
+    trends,
+    strengths: strs(raw.strengths, 3, 240),
+    concerns: strs(raw.concerns, 3, 240),
+    recommendations: strs(raw.recommendations, 4, 300),
     suggestions: sanitizeSuggestions(raw.suggestions, slots, 3),
   };
 }

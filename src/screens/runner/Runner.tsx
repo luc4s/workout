@@ -19,7 +19,8 @@ import './runner.css';
 export default function Runner() {
   const [loaded, setLoaded] = useState<RunnerState | null | undefined>(undefined);
   useEffect(() => {
-    getRunner().then((r) => setLoaded(r ?? null));
+    // A runner saved with an out-of-range index (older releases could drop the current step) is clamped.
+    getRunner().then((r) => setLoaded(r ? { ...r, index: Math.max(0, Math.min(r.steps.length - 1, r.index)) } : null));
   }, []);
   if (loaded === undefined) return null;
   if (loaded === null) return <Navigate to="/" replace />;
@@ -41,7 +42,7 @@ function RunnerInner({ initial }: { initial: RunnerState }) {
   }, [state]);
 
   const dispatch = useCallback((a: RunnerAction) => rawDispatch(a), []);
-  useCoachNotes(state, dispatch);
+  const { pending: coachPending } = useCoachNotes(state, dispatch);
 
   const finish = useCallback(
     async (extra?: Parameters<typeof finishSession>[1]) => {
@@ -121,7 +122,7 @@ function RunnerInner({ initial }: { initial: RunnerState }) {
 
       <div className="runner-body" key={step.id}>
         {step.kind === 'work' && <WorkView state={state} step={step} dispatch={dispatch} now={now} isLast={isLast} onFinish={finish} />}
-        {step.kind === 'rest' && <RestView state={state} step={step} dispatch={dispatch} now={now} />}
+        {step.kind === 'rest' && <RestView state={state} step={step} dispatch={dispatch} now={now} coachPending={coachPending} />}
         {step.kind === 'warmup' && <WarmupView state={state} step={step} dispatch={dispatch} now={now} isLast={isLast} />}
         {step.kind === 'interval' && <IntervalView state={state} step={step} dispatch={dispatch} now={now} onFinish={finish} />}
       </div>

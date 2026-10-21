@@ -36,8 +36,9 @@ animated technique guides.
   session, a daily brief. During a session: a note on every rest (set vs target, RIR, rest taken,
   pace, a cue for the next set) and a bad-day switch when the first sets fall short. After: a
   review (per-exercise verdicts, work / rest / transition time, volume vs last time, RIR
-  calibration, PRs) with next-time suggestions. Suggestions are accepted with one tap; nothing
-  changes otherwise.
+  calibration, PRs) with next-time suggestions. On demand, a Claude analysis of the whole history
+  (trend per exercise, adherence, RIR habits, recommendations). Suggestions are accepted with one
+  tap; nothing changes otherwise.
 - **Exercise guides** — setup, execution, cues, common mistakes, regressions/progressions and
   sources for every movement, with a 3D animation (glTF) you can rotate — drag, double-tap to
   reset, Side / Front / ¾ presets — and red-highlighted mistake demos. Every pose is checked
@@ -104,6 +105,8 @@ How the runner holds to that, in `src/screens/runner/runner.css`:
   aspect ratio); elsewhere, and in portrait, the stage is 4:3 and width-driven.
 - Timer rings are capped at `42vh` so the buttons under them stay on screen; the `size` prop of
   `TimerRing` is only the SVG geometry and an upper bound.
+- The rest screen is three full-width columns: timer | up next (targets, then the 3D view, which
+  absorbs the leftover height) | coach feedback (scrolls inside its card if it ever overflows).
 - `@media (max-height: 760px) and (orientation: landscape)` tightens the logging panel. The
   case that needs it is the weighted split squat — two rep steppers *plus* a load stepper.
 - Portrait stacks the two columns and goes back to scrolling.
@@ -138,9 +141,12 @@ or on any error the rule layer alone is shown and logging is never blocked.
 What is sent (`src/coach/context.ts`): the date, your settings (body weight, pull-up max, roadmap
 stage, chosen variations and loads, rest scale), the week's coverage, the last 8 completed sessions
 compressed per exercise (variation, load, reps, RIR, duration; 4 sessions for a rest note), the rule
-layer's verdict, today's logged sets, and your session notes for the review. Nothing else. Rough
-cost on Fable 5.1 (thinking tokens are billed as output): ≈ $0.02–0.04 per rest note, ≈ $0.1–0.2
-for a brief or review — about $0.7–1 for a full session; Settings shows the month's usage.
+layer's verdict, today's logged sets, and your session notes for the review. The training analysis
+(Today → *Ask Claude to analyse my training*, never automatic) sends every completed session (up to
+60) plus `trainingStats` (score timeline per exercise, sessions per week, adherence, RIR habits).
+Nothing else. Rough cost on Fable 5.1 (thinking tokens are billed as output): ≈ $0.02–0.04 per rest
+note, ≈ $0.1–0.2 for a brief or review — about $0.7–1 for a full session — and ≈ $0.2–0.4 for an
+analysis; Settings shows the month's usage.
 
 ## Code map
 

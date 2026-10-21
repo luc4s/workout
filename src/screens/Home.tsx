@@ -7,6 +7,7 @@ import { IconCheck, IconPlay } from '../components/icons';
 import { labelOf, relativeDay, sessionsInWeek, weekStart } from '../logic/schedule';
 import type { RunnerState } from '../logic/runner';
 import { CoachCard } from './coach/CoachCard';
+import { AnalysisCard } from './coach/AnalysisCard';
 
 const DAY = 24 * 3600 * 1000;
 
@@ -99,6 +100,8 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      <AnalysisCard sessions={sessions} sets={sets} settings={settings} />
 
       <div className="section-title">Start any session</div>
       <div className="grid grid-4">

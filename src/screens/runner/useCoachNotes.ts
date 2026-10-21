@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { askRestNote } from '../../coach/ask';
 import { useCoachConfig } from '../../coach/store';
 import { db, getSettings } from '../../db/db';
@@ -20,8 +20,10 @@ function prevWorkStepId(state: RunnerState): string | undefined {
  * are kept in the runner state so Prev / Next and reloads keep them. A Claude call is cancelled
  * once the user moves past the rest it was meant for.
  */
-export function useCoachNotes(state: RunnerState, dispatch: (a: RunnerAction) => void) {
+export function useCoachNotes(state: RunnerState, dispatch: (a: RunnerAction) => void): { pending: Record<string, true> } {
   const cfg = useCoachConfig();
+  /** Work-step ids whose Claude note is being fetched (not persisted). */
+  const [pending, setPending] = useState<Record<string, true>>({});
   const seen = useRef<Set<string>>();
   const aborts = useRef(new Map<string, AbortController>());
   const latest = useRef(state);
@@ -57,10 +59,16 @@ export function useCoachNotes(state: RunnerState, dispatch: (a: RunnerAction) =>
     const ac = new AbortController();
     aborts.current.get(step.id)?.abort();
     aborts.current.set(step.id, ac);
+    setPending((p) => ({ ...p, [step.id]: true }));
+    const clear = () => setPending((p) => {
+      const { [step.id]: _gone, ...rest } = p;
+      return rest;
+    });
     const [sessions, sets, settings] = await Promise.all([db.sessions.toArray(), db.sets.toArray(), getSettings()]);
-    if (ac.signal.aborted) return;
+    if (ac.signal.aborted) return clear();
     const r = await askRestNote({ state: latest.current, feedback, record, today, sessions, sets, settings, now: Date.now(), signal: ac.signal });
     if (aborts.current.get(step.id) === ac) aborts.current.delete(step.id);
+    clear();
     if (r.ok && !ac.signal.aborted) {
       dispatch({ type: 'coachNote', stepId: step.id, note: { claude: { note: r.data.note, cue: r.data.cue, suggestion: r.data.suggestion, model: r.model, at: r.at, fallback: r.fallback } } });
     }
@@ -84,4 +92,6 @@ export function useCoachNotes(state: RunnerState, dispatch: (a: RunnerAction) =>
       map.clear();
     };
   }, []);
+
+  return { pending };
 }

@@ -234,7 +234,7 @@ export function WorkView(props: {
         </div>
 
         <button className="btn good huge block" onClick={submit} disabled={saving}>
-          <IconCheck width={30} height={30} /> {done ? 'Update set' : isLast ? 'Done — finish' : 'Done set'}
+          <IconCheck width={30} height={30} /> {done ? (isLast ? 'Update & finish' : 'Update set') : isLast ? 'Done — finish' : 'Done set'}
         </button>
 
         {remaining > 0 && step.totalSets > 1 && (

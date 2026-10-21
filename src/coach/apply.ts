@@ -9,10 +9,16 @@ import type { CoachSuggestion } from '../logic/coach';
 import { restPauseLabel, variationOf } from '../logic/progression';
 import type { RunnerAction, RunnerState } from '../logic/runner';
 import { setSessionFlags } from '../logic/session';
-import { remainingSetsOf } from '../logic/steps';
+import { isOptionalSlot, remainingSetsOf, type WorkStep } from '../logic/steps';
 import { mergeCoachNext } from './store';
 
 export type ApplyScope = 'home' | 'runner' | 'summary';
+
+/** True when every work step after the current one matches `dropped`, i.e. nothing is left to do. */
+function nothingAfter(state: RunnerState | undefined, dropped: (s: WorkStep) => boolean): boolean {
+  if (!state) return false;
+  return state.steps.slice(state.index + 1).every((s) => s.kind !== 'work' || dropped(s));
+}
 
 export interface ApplyContext {
   settings: Settings;
@@ -96,7 +102,7 @@ export async function applySuggestion(s: CoachSuggestion, scope: ApplyScope, ctx
       return 'Setting up a bad-day session.';
     case 'drop-sets':
       ctx.dispatch?.({ type: 'dropRemaining', slot: s.slot! });
-      return `Remaining ${name(s.slot)} sets skipped.`;
+      return `Remaining ${name(s.slot)} sets skipped.${nothingAfter(ctx.state, (st) => st.slot === s.slot) ? ' That was the last set — finish when ready.' : ''}`;
     case 'hold':
       await mergeCoachNext({ holds: [s.slot!] });
       return `${name(s.slot)} will repeat today's targets next time.`;
@@ -122,7 +128,7 @@ export async function applySuggestion(s: CoachSuggestion, scope: ApplyScope, ctx
       if (scope === 'runner' && ctx.state) {
         ctx.dispatch?.({ type: 'setFlags', flags: { finisher: false }, now: Date.now() });
         await setSessionFlags(ctx.state.sessionId, { finisher: false });
-        return 'Finisher dropped for today.';
+        return `Finisher dropped for today.${nothingAfter(ctx.state, (st) => !!st.restPause || isOptionalSlot(st.slot)) ? ' That was the last set — finish when ready.' : ''}`;
       }
       if (scope === 'home') ctx.navigate?.(`/setup/${ctx.templateId}`, { state: { flags: { finisher: false } } });
       else await mergeCoachNext({ flags: { finisher: false } });

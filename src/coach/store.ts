@@ -122,3 +122,17 @@ export async function mergeCoachNext(patch: Partial<CoachNext>): Promise<CoachNe
   await db.kv.put({ key: 'coach:next', value: next });
   return next;
 }
+
+/** The last whole-history analysis (kv `coach:analysis`). */
+export interface StoredAnalysis<T = unknown> extends CoachStored<T> {
+  /** Number of completed sessions when it was made, to show how stale it is. */
+  sessions: number;
+}
+
+export async function getAnalysis<T>(): Promise<StoredAnalysis<T> | undefined> {
+  return (await db.kv.get('coach:analysis'))?.value as StoredAnalysis<T> | undefined;
+}
+
+export async function setAnalysis<T>(a: StoredAnalysis<T>): Promise<void> {
+  await db.kv.put({ key: 'coach:analysis', value: a });
+}

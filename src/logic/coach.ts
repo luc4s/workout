@@ -5,7 +5,7 @@
 import { getTemplate, PRESCRIPTIONS, templateOfKey } from '../data/program';
 import type { Prescription, TemplateId } from '../data/types';
 import type { SessionFlags, SessionRecord, SetRecord, Settings } from '../db/db';
-import { applyStage, detectStall, groupBySession, isLoadable, rangeText, variationOf, weeksSince, type SuggestionKind } from './progression';
+import { applyStage, detectStall, groupBySession, isLoadable, rangeText, scoreOf, variationOf, weeksSince, type SlotSession, type SuggestionKind } from './progression';
 import { sessionElapsedMs, type RunnerState } from './runner';
 import { isFull, labelOf, ROTATION, sessionsInWeek, suggestNext, warningsFor, weekStart } from './schedule';
 import type { Preparation } from './session';
@@ -613,5 +613,126 @@ export function sessionReview(input: ReviewInput): SessionReview {
     stalls,
     nextTime,
     suggestions,
+  };
+}
+
+/* ---------- whole-history stats (for the training analysis) ---------- */
+
+export interface SlotStats {
+  slot: string;
+  name: string;
+  sessions: number;
+  firstAt: number;
+  lastAt: number;
+  /** Best single-set reps ever, with its variation / load. */
+  best: { reps: number; variationId?: string; loadKg?: number; at: number };
+  /** Performance score (variation rank / load / mean reps) of the first and the latest normal session, and the trend. */
+  first: { score: number; variationId?: string; loadKg?: number; meanReps: number };
+  latest: { score: number; variationId?: string; loadKg?: number; meanReps: number };
+  trend: 'up' | 'flat' | 'down';
+  /** Score per normal session, oldest first (for the model to read the curve). */
+  timeline: { d: number; score: number; meanReps: number; kg?: number; v?: string }[];
+  stall?: 'deload' | 'add-set';
+}
+
+export interface TrainingStats {
+  sessions: number;
+  firstAt?: number;
+  lastAt?: number;
+  weeks: number;
+  /** Completed sessions per week over the last 8 weeks, oldest first. */
+  perWeek: number[];
+  /** Share of planned weekly sessions actually done over the last 8 weeks (0–1). */
+  adherence: number;
+  byTemplate: Record<string, { count: number; avgMin?: number; targetMin: number; badDays: number; deloads: number }>;
+  weeksSinceDeload?: number;
+  rir: { sets: number; atFailure: number; leftAtDefault: number };
+  slots: SlotStats[];
+  stalls: StallHint[];
+}
+
+export function trainingStats(sessions: SessionRecord[], sets: SetRecord[], settings: Settings, now: number): TrainingStats {
+  const done = sessions.filter((s) => s.endedAt).sort((a, b) => a.startedAt - b.startedAt);
+  const firstAt = done[0]?.startedAt;
+  const lastAt = done[done.length - 1]?.startedAt;
+  const ws = weekStart(now);
+  const perWeek: number[] = [];
+  for (let w = 7; w >= 0; w--) perWeek.push(sessionsInWeek(sessions, ws - w * 7 * DAY).length);
+  const plannedPerWeek = 4;
+  const weeksTracked = firstAt === undefined ? 0 : Math.min(8, Math.floor((now - weekStart(firstAt)) / (7 * DAY)) + 1);
+  const adherence = weeksTracked ? Math.min(1, perWeek.slice(-weeksTracked).reduce((a, b) => a + b, 0) / (plannedPerWeek * weeksTracked)) : 0;
+
+  const byTemplate: TrainingStats['byTemplate'] = {};
+  for (const t of ['A', 'B', 'micro', 'row'] as TemplateId[]) {
+    const own = done.filter((s) => s.templateId === t);
+    const mins = own.map((s) => (s.endedAt! - s.startedAt) / 60000).filter((m) => m > 3);
+    byTemplate[t] = {
+      count: own.length,
+      avgMin: mins.length ? Math.round(mins.reduce((a, b) => a + b, 0) / mins.length) : undefined,
+      targetMin: getTemplate(t).targetMin,
+      badDays: own.filter((s) => s.flags.badDay).length,
+      deloads: own.filter((s) => s.flags.deload).length,
+    };
+  }
+
+  const workSets = sets.filter((s) => !s.slot.includes('.rp-') && s.rir !== undefined);
+  const rir = {
+    sets: workSets.length,
+    atFailure: workSets.filter((s) => s.rir === 0).length,
+    leftAtDefault: workSets.filter((s) => {
+      const p = PRESCRIPTIONS[s.slot];
+      return p ? s.rir === effectiveRir(p, { badDay: !!s.badDay, deload: !!s.deload }).min : false;
+    }).length,
+  };
+
+  const slots: SlotStats[] = [];
+  for (const [slot, base] of Object.entries(PRESCRIPTIONS)) {
+    if (slot.includes('.rp-')) continue;
+    const p = applyStage(base, settings);
+    const history = groupBySession(
+      sets.filter((s) => s.slot === slot),
+      sessions,
+    );
+    if (!history.length) continue;
+    const normal = history.filter((h) => !h.badDay && !h.deload).reverse(); // oldest first
+    const all = [...history].reverse();
+    const bestSet = sets.filter((s) => s.slot === slot).reduce((a, s) => (s.reps > a.reps ? s : a));
+    const summary = (h: SlotSession) => ({
+      score: Math.round(scoreOf(p, h) * 10) / 10,
+      variationId: h.sets[0]?.variationId,
+      loadKg: h.sets[0]?.loadKg,
+      meanReps: Math.round((h.sets.reduce((a, s) => a + s.reps, 0) / h.sets.length) * 10) / 10,
+    });
+    const basis = normal.length ? normal : all;
+    const first = summary(basis[0]);
+    const latest = summary(basis[basis.length - 1]);
+    const trend: SlotStats['trend'] = latest.score > first.score + 0.3 ? 'up' : latest.score < first.score - 0.3 ? 'down' : 'flat';
+    slots.push({
+      slot,
+      name: p.name,
+      sessions: history.length,
+      firstAt: all[0].at,
+      lastAt: all[all.length - 1].at,
+      best: { reps: bestSet.reps, variationId: bestSet.variationId, loadKg: bestSet.loadKg, at: bestSet.completedAt },
+      first,
+      latest,
+      trend,
+      timeline: basis.map((h) => ({ d: h.at, score: summary(h).score, meanReps: summary(h).meanReps, kg: h.sets[0]?.loadKg || undefined, v: h.sets[0]?.variationId })),
+      stall: detectStall(p, [...normal].reverse().slice(0, 6)),
+    });
+  }
+
+  return {
+    sessions: done.length,
+    firstAt,
+    lastAt,
+    weeks: firstAt === undefined ? 0 : Math.floor((now - firstAt) / (7 * DAY)) + 1,
+    perWeek,
+    adherence: Math.round(adherence * 100) / 100,
+    byTemplate,
+    weeksSinceDeload: weeksSince(settings.lastDeloadAt ?? firstAt, now),
+    rir,
+    slots,
+    stalls: stallsOf(sets, sessions, settings),
   };
 }

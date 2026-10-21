@@ -7,7 +7,7 @@ import type { MessageCreateParamsNonStreaming } from '@anthropic-ai/sdk/resource
 import { PING_PROMPT, SYSTEM_PROMPT } from './prompts';
 import { getCoachConfig, recordUsage } from './store';
 
-export type CoachKind = 'brief' | 'rest-note' | 'review' | 'ping';
+export type CoachKind = 'brief' | 'rest-note' | 'review' | 'analysis' | 'ping';
 
 export const PRIMARY_MODEL = 'claude-fable-5-1';
 export const FALLBACK_MODEL = 'claude-opus-5-5';
@@ -64,6 +64,7 @@ const LIMITS: Record<CoachKind, { maxTokens: number; effort: 'low' | 'high'; tim
   'rest-note': { maxTokens: 600, effort: 'low', timeoutMs: 25_000, retries: 0 },
   brief: { maxTokens: 2000, effort: 'high', timeoutMs: 60_000, retries: 1 },
   review: { maxTokens: 3000, effort: 'high', timeoutMs: 60_000, retries: 1 },
+  analysis: { maxTokens: 5000, effort: 'high', timeoutMs: 90_000, retries: 1 },
   ping: { maxTokens: 256, effort: 'low', timeoutMs: 30_000, retries: 0 },
 };
 
