@@ -111,6 +111,7 @@ export async function startSession(opts: SessionOptions, prep: Preparation): Pro
     now,
   });
   await saveRunner(runner);
+  await db.kv.delete('coach:next');
   return runner;
 }
 
@@ -156,8 +157,17 @@ export async function logSet(runner: RunnerState, step: WorkStep, input: SetInpu
 }
 
 export async function finishSession(runner: RunnerState, extra: { notes?: string; rowing?: { distanceM?: number; avgSplit?: string } } = {}) {
-  await db.sessions.update(runner.sessionId, { endedAt: Date.now(), ...extra });
+  const current = await db.sessions.get(runner.sessionId);
+  const targets = Object.fromEntries(Object.entries(runner.suggestions).map(([slot, s]) => [slot, s.repsTarget]));
+  const coach = { ...current?.coach, targets, ...(runner.coach?.notes && Object.keys(runner.coach.notes).length ? { notes: runner.coach.notes } : {}) };
+  await db.sessions.update(runner.sessionId, { endedAt: Date.now(), flags: runner.flags, coach, ...extra });
   await saveRunner(undefined);
+}
+
+/** Mid-session protocol switch (bad day / finisher off): the session record follows the runner. */
+export async function setSessionFlags(sessionId: number, flags: Partial<SessionFlags>) {
+  const s = await db.sessions.get(sessionId);
+  if (s) await db.sessions.update(sessionId, { flags: { ...s.flags, ...flags } });
 }
 
 export async function abandonSession(runner: RunnerState) {

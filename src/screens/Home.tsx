@@ -1,33 +1,29 @@
+import { useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Link, useNavigate } from 'react-router-dom';
 import { getTemplate, TEMPLATES, WEEK_PLAN } from '../data/program';
 import { db, DEFAULT_SETTINGS, type Settings } from '../db/db';
-import { Note } from '../components/controls';
 import { IconCheck, IconPlay } from '../components/icons';
-import { labelOf, relativeDay, sessionsInWeek, suggestNext, weekStart } from '../logic/schedule';
-import { weeksSince } from '../logic/progression';
+import { labelOf, relativeDay, sessionsInWeek, weekStart } from '../logic/schedule';
 import type { RunnerState } from '../logic/runner';
-import { useStallHints } from './useStallHints';
+import { CoachCard } from './coach/CoachCard';
 
 const DAY = 24 * 3600 * 1000;
 
 export default function Home() {
   const navigate = useNavigate();
   const sessions = useLiveQuery(() => db.sessions.toArray(), []);
+  const sets = useLiveQuery(() => db.sets.toArray(), []);
   const runner = useLiveQuery(() => db.kv.get('runner'), [])?.value as RunnerState | undefined;
-  const settings = (useLiveQuery(() => db.kv.get('settings'), [])?.value as Settings | undefined) ?? DEFAULT_SETTINGS;
-  const stalls = useStallHints();
+  const settingsRow = useLiveQuery(() => db.kv.get('settings'), []);
+  const settings = useMemo(() => ({ ...DEFAULT_SETTINGS, ...((settingsRow?.value as Partial<Settings> | undefined) ?? {}) }), [settingsRow]);
 
-  if (!sessions) return null;
+  if (!sessions || !sets) return null;
   const now = Date.now();
-  const next = suggestNext(sessions, now);
-  const nextT = getTemplate(next.templateId);
   const ws = weekStart(now);
   const thisWeek = sessionsInWeek(sessions, ws);
   const todayIdx = (new Date(now).getDay() + 6) % 7;
   const done = sessions.filter((s) => s.endedAt);
-  const firstAt = done.length ? Math.min(...done.map((s) => s.startedAt)) : undefined;
-  const sinceDeload = weeksSince(settings.lastDeloadAt ?? firstAt, now);
 
   return (
     <div className="page">
@@ -55,24 +51,7 @@ export default function Home() {
       )}
 
       <div className="grid grid-2">
-        <div className="card stack">
-          <div className="section-title">Up next</div>
-          <div className="row between wrap">
-            <div className="stack tight">
-              <h2 style={{ fontSize: 23 }}>{nextT.name}</h2>
-              <div className="muted">{nextT.subtitle}</div>
-            </div>
-          </div>
-          <div className="faint">{next.reason}</div>
-          {next.warnings.map((w) => (
-            <Note key={w} kind="warn">
-              {w}
-            </Note>
-          ))}
-          <button className="btn primary huge block" onClick={() => navigate(`/setup/${next.templateId}`)} disabled={!!runner}>
-            Set up session
-          </button>
-        </div>
+        <CoachCard sessions={sessions} sets={sets} settings={settings} busy={!!runner} />
 
         <div className="card stack">
           <div className="section-title">This week</div>
@@ -120,25 +99,6 @@ export default function Home() {
           </div>
         </div>
       </div>
-
-      {(stalls.length > 0 || (sinceDeload !== undefined && sinceDeload >= 8)) && (
-        <div className="card stack">
-          <div className="section-title">Coach notes</div>
-          {sinceDeload !== undefined && sinceDeload >= 8 && (
-            <Note kind="info">
-              {sinceDeload} weeks since your last deload. Deload only on a stall or when run-down — expect one roughly every 8–12 weeks.
-            </Note>
-          )}
-          {stalls.map((s) => (
-            <Note key={s.slot} kind="warn">
-              <b>{s.name}:</b>{' '}
-              {s.stall === 'add-set'
-                ? 'no progress for 3+ weeks — add a set to that pattern, or grow the micro session for it.'
-                : 'no progress in 2 sessions — if recovery is normal, consider a deload week (1–2 sets, ~3–4 RIR, same load).'}
-            </Note>
-          ))}
-        </div>
-      )}
 
       <div className="section-title">Start any session</div>
       <div className="grid grid-4">

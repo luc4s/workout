@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { Link, useNavigate, useParams } from 'react-router-dom';
-import { getTemplate, getVariant, restPauseOptions } from '../data/program';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { getTemplate, getVariant, PRESCRIPTIONS, restPauseOptions } from '../data/program';
 import type { Prescription, TemplateId } from '../data/types';
 import { db } from '../db/db';
 import { Chips, Note, ToggleRow, VariationSelect } from '../components/controls';
@@ -12,15 +12,35 @@ import type { SlotPlan } from '../logic/runner';
 import { warningsFor } from '../logic/schedule';
 import { lastRestPauseSlot, prepareSession, startSession, type Preparation, type SessionOptions } from '../logic/session';
 import { estimateDurationSec } from '../logic/steps';
+import { getCoachNext, type CoachNext } from '../coach/store';
 
 export default function SessionSetup() {
   const { templateId = 'A' } = useParams();
   const navigate = useNavigate();
   const template = getTemplate(templateId as TemplateId);
-  const [variantId, setVariantId] = useState(template.variants[0].id);
-  const [finisher, setFinisher] = useState(true);
-  const [badDay, setBadDay] = useState(false);
-  const [deload, setDeload] = useState(false);
+  // Presets from the coach: router state (Today → "Set up session" / an accepted suggestion) and the stored `coach:next`.
+  const preset = (useLocation().state ?? {}) as { flags?: Partial<CoachNext['flags']>; variantId?: string };
+  const [variantId, setVariantId] = useState(template.variants.find((v) => v.id === preset.variantId)?.id ?? template.variants[0].id);
+  const [finisher, setFinisher] = useState(preset.flags?.finisher ?? true);
+  const [badDay, setBadDay] = useState(preset.flags?.badDay ?? false);
+  const [deload, setDeload] = useState(preset.flags?.deload ?? false);
+  const [holds, setHolds] = useState<string[]>([]);
+  const [presetNote, setPresetNote] = useState<string[]>(() => presetLabels(preset.flags, preset.variantId));
+  useEffect(() => {
+    let cancelled = false;
+    getCoachNext().then((n) => {
+      if (cancelled || !n || (n.templateId && n.templateId !== template.id)) return;
+      if (n.flags?.badDay) setBadDay(true);
+      if (n.flags?.deload) setDeload(true);
+      if (n.flags?.finisher === false) setFinisher(false);
+      if (n.variantId && template.variants.some((v) => v.id === n.variantId)) setVariantId(n.variantId);
+      if (n.holds?.length) setHolds(n.holds);
+      setPresetNote((cur) => [...new Set([...cur, ...presetLabels(n.flags, n.variantId), ...(n.holds ?? []).map((h) => `hold ${PRESCRIPTIONS[h]?.name ?? h}`)])]);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [template]);
   const rpOptions = restPauseOptions(template.id, variantId);
   const [restPauseSlot, setRestPauseSlot] = useState(rpOptions[0]?.key);
   const [rpPicked, setRpPicked] = useState(false);
@@ -121,6 +141,21 @@ export default function SessionSetup() {
         };
       }
     }
+    // Coach "hold": repeat last time's reps instead of progressing.
+    for (const slot of holds) {
+      const s = suggestions[slot];
+      const last = prep.lastTime[slot];
+      const p = prep.prescriptions.find((x) => x.key === slot);
+      if (!s || !last || !p || (s.kind !== 'add-reps' && s.kind !== 'add-load' && s.kind !== 'next-variation')) continue;
+      const clamp = (r: number) => Math.max(p.reps.min, Math.min(p.reps.max, r));
+      suggestions[slot] = {
+        ...s,
+        kind: 'hold',
+        plan: { ...s.plan, variationId: plans[slot]?.variationId ?? s.plan.variationId, loadKg: plans[slot]?.loadKg ?? last.loadKg ?? s.plan.loadKg },
+        repsTarget: s.repsTarget.map((_, i) => clamp(last.reps[i] ?? last.reps[last.reps.length - 1] ?? p.reps.min)),
+        message: `Coach: repeat last time (${last.reps.join('-')}) rather than adding reps.`,
+      };
+    }
     await startSession(opts, { ...prep, plans, suggestions });
     navigate('/run');
   };
@@ -193,6 +228,7 @@ export default function SessionSetup() {
                 {w}
               </Note>
             ))}
+            {presetNote.length > 0 && <Note kind="info">Coach presets applied: {presetNote.join(', ')}. You can still change anything here.</Note>}
             {template.variants.length > 1 && (
               <>
                 <div className="section-title">Workout</div>
@@ -268,6 +304,15 @@ export default function SessionSetup() {
       </div>
     </div>
   );
+}
+
+function presetLabels(flags?: Partial<CoachNext['flags']>, variantId?: string): string[] {
+  const out: string[] = [];
+  if (flags?.deload) out.push('deload week');
+  if (flags?.badDay) out.push('bad day');
+  if (flags?.finisher === false) out.push('no finisher');
+  if (variantId) out.push(variantId);
+  return out;
 }
 
 function PlanRow(props: {

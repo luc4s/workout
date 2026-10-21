@@ -27,6 +27,23 @@ backups. Every change must keep that data working with **no migration step**:
 - Clip names (`main`, `fault:<id>`) and node names (`m_<bone>_<n>`, `p_<prop>`) are read by the
   viewer; no `.` or `:` in node names (three.js bindings).
 
+## Coach
+
+- The rule layer (`src/logic/coach.ts`, `progression.ts`, `schedule.ts`) is the source of truth.
+  Claude output is **advisory**: it only ever becomes a `CoachSuggestion` that the user accepts with
+  a tap (`src/coach/apply.ts`), never a silent change to targets, loads, flags or settings.
+- Every Claude call must degrade to rules-only (no key, offline, error, refusal, bad JSON) and must
+  never block logging a set or finishing a session. `callCoach` never throws.
+- kv rows `coach` / `coach:*` hold the API key, caches and usage: never exported in backups and
+  preserved on import (`isCoachKey` in `db.ts`). Never log or send the key anywhere but the API.
+- Fable 5.1 requests: no `thinking` parameter, no assistant prefill, no forced `tool_choice`; check
+  `stop_reason === 'refusal'` before reading content. Structured output via
+  `output_config.format` with closed schemas (`additionalProperties: false`, every property
+  required); keep the `sanitize*` guards in `src/coach/schema.ts` in sync with any schema change.
+- The rest-screen note (`.coach-note`) stays within two lines plus one button at 960 × 600.
+- New `RunnerState.coach` / `SessionRecord.coach` fields are optional; a runner saved without them
+  must still resume.
+
 ## Checks
 
 ```sh

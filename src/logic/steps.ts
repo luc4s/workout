@@ -5,7 +5,7 @@ import type {
   Range,
   SessionTemplate,
 } from '../data/types';
-import { getVariant } from '../data/program';
+import { getTemplate, getVariant, templateOfKey } from '../data/program';
 
 export interface WarmupStep {
   kind: 'warmup';
@@ -174,6 +174,17 @@ export function swapRestPause(steps: Step[], p: Prescription): Step[] {
       ? { ...s, id: `rp:${p.key}#${s.restPause.mini}`, slot: p.key, exerciseId: p.exerciseId, name: p.name, notes: p.notes, hint: p.hint }
       : s,
   );
+}
+
+/** Slots that belong to an optional block (finisher) of their template. */
+export function isOptionalSlot(slot: string): boolean {
+  const t = getTemplate(templateOfKey(slot));
+  return t.variants.some((v) => v.blocks.some((b) => (b.kind === 'pair' || b.kind === 'rest-pause') && b.optional && b.exercises.some((e) => e.key === slot)));
+}
+
+/** Drop every finisher step after `fromIndex` (skip-finisher mid-session). */
+export function dropOptionalSteps(steps: Step[], fromIndex: number): Step[] {
+  return normalizeRests(steps.filter((s, i) => i <= fromIndex || s.kind !== 'work' || (!s.restPause && !isOptionalSlot(s.slot))));
 }
 
 export function remainingSetsOf(steps: Step[], fromIndex: number, slot: string): number {

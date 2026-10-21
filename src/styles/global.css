@@ -792,6 +792,61 @@ textarea.input {
   outline-offset: -2px;
 }
 
+/* ---------- coach ---------- */
+
+.coach-brief {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+}
+
+.coach-brief .headline {
+  font-weight: 700;
+  font-size: 17px;
+}
+
+.coach-src {
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.suggestion {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.suggestion .reason {
+  flex: 1;
+  font-size: 14px;
+}
+
+.suggestion .btn {
+  flex: none;
+}
+
+.good-text {
+  color: var(--good-ink);
+  font-size: 13px;
+}
+
+.verdict-beat,
+.verdict-hit {
+  background: color-mix(in srgb, var(--good) 16%, transparent);
+  color: var(--good-ink);
+}
+.verdict-partial {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.verdict-missed {
+  background: var(--critical-soft);
+  color: var(--critical);
+}
+
 /* ---------- lists ---------- */
 
 .list {

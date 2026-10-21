@@ -2,13 +2,13 @@ import { useEffect, useState } from 'react';
 import { AnimPlayer } from '../../anim3d/AnimPlayer';
 import { EXERCISES } from '../../data/exercises';
 import { PRESCRIPTIONS } from '../../data/program';
-import type { ExerciseId } from '../../data/types';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type Settings } from '../../db/db';
 import { Sheet, Stepper, VariationSelect } from '../../components/controls';
 import { IconCheck } from '../../components/icons';
 import { formatClock } from '../../hooks/useNow';
-import { isLoadable, LOAD_STEP_KG, rangeText, variationOf } from '../../logic/progression';
+import { LOAD_STEP_KG, rangeText } from '../../logic/progression';
+import { exerciseForStep, loadFor, targetFor, variationChanged } from '../../logic/targets';
 import { relativeDay } from '../../logic/schedule';
 import { stepElapsedMs, type RunnerAction, type RunnerState } from '../../logic/runner';
 import { logSet } from '../../logic/session';
@@ -16,34 +16,7 @@ import { remainingSetsOf, type WorkStep } from '../../logic/steps';
 import { GuideContent } from '../GuideContent';
 import { RestPauseSwitch } from './RestPauseSwitch';
 
-export function exerciseForStep(state: RunnerState, step: { slot: string; exerciseId: ExerciseId }): ExerciseId {
-  const p = PRESCRIPTIONS[step.slot];
-  const v = variationOf(p, state.plans[step.slot]?.variationId);
-  return v?.exerciseId ?? step.exerciseId;
-}
-
-/** Planned added weight for a work step, or undefined when the exercise/variation isn't loaded. */
-export function loadFor(state: RunnerState, step: { slot: string }): number | undefined {
-  const plan = state.plans[step.slot] ?? {};
-  // Session A pull-up loading follows the roadmap stage, which decided whether a load was planned.
-  const loadable = step.slot === 'A.pullup' ? plan.loadKg !== undefined : isLoadable(PRESCRIPTIONS[step.slot], plan.variationId);
-  return loadable ? plan.loadKg ?? 0 : undefined;
-}
-
-/** True when the variation was changed during the session, so the planned targets no longer apply. */
-export function variationChanged(state: RunnerState, slot: string): boolean {
-  const p = PRESCRIPTIONS[slot];
-  const planned = state.suggestions[slot]?.plan.variationId;
-  const current = state.plans[slot]?.variationId ?? p?.defaultVariation;
-  return !!p?.variations && planned !== undefined && current !== planned;
-}
-
-/** Rep target for a work step (undefined for rest-pause mini-sets, which have no fixed target). */
-export function targetFor(state: RunnerState, step: WorkStep): number | undefined {
-  if (step.restPause) return undefined;
-  if (variationChanged(state, step.slot)) return step.reps.min;
-  return state.suggestions[step.slot]?.repsTarget[step.setNumber - 1];
-}
+export { exerciseForStep, loadFor, targetFor, variationChanged };
 
 interface Form {
   reps: number;
@@ -76,6 +49,9 @@ export function WorkView(props: {
   const done = !!state.done[step.id];
   const remaining = remainingSetsOf(state.steps, state.index, step.slot);
   const [guideOpen, setGuideOpen] = useState(false);
+  // Cue from the coach's note on the previous set of this exercise.
+  const prevNote = step.setNumber > 1 && !step.restPause ? state.coach?.notes?.[`${step.slot}#${step.setNumber - 1}`] : undefined;
+  const cue = prevNote?.claude?.cue ?? prevNote?.rule?.cue;
   const [saving, setSaving] = useState(false);
 
   const defaultReps = target ?? (step.restPause ? (step.restPause.mini === 1 ? step.reps.min + 7 : 3) : last?.reps[idx] ?? step.reps.min);
@@ -152,8 +128,10 @@ export function WorkView(props: {
         </div>
         {changedVariation && !step.restPause ? (
           <div className="coach">New variation — start at the bottom of the range ({step.reps.min}).</div>
+        ) : suggestion && !step.restPause && step.setNumber === 1 ? (
+          <div className="coach">{suggestion.message}</div>
         ) : (
-          suggestion && !step.restPause && step.setNumber === 1 && <div className="coach">{suggestion.message}</div>
+          cue && <div className="coach">Coach: {cue}</div>
         )}
         {step.restPause && (
           <div className="coach">

@@ -1,6 +1,24 @@
 import Dexie, { type Table } from 'dexie';
 import type { ExerciseId, TemplateId } from '../data/types';
-import type { RunnerState } from '../logic/runner';
+import type { CoachStepNote, RunnerState } from '../logic/runner';
+
+/** A Claude answer kept with the session it was written for. */
+export interface CoachStored<T> {
+  data: T;
+  model: string;
+  at: number;
+  fallback?: boolean;
+}
+
+/** Coach data attached to a session (all optional: sessions logged before the coach existed have none). */
+export interface SessionCoachData {
+  /** Rep targets per slot the session was run with. */
+  targets?: Record<string, number[]>;
+  brief?: CoachStored<unknown>;
+  review?: CoachStored<unknown>;
+  /** Rest-screen notes by work-step id. */
+  notes?: Record<string, CoachStepNote>;
+}
 
 export interface SessionFlags {
   badDay: boolean;
@@ -18,6 +36,7 @@ export interface SessionRecord {
   notes?: string;
   /** Distance / split for rowing sessions. */
   rowing?: { distanceM?: number; avgSplit?: string };
+  coach?: SessionCoachData;
 }
 
 export interface SetRecord {
@@ -108,6 +127,11 @@ export async function getRunner(): Promise<RunnerState | undefined> {
 export async function saveRunner(state: RunnerState | undefined) {
   if (state) await db.kv.put({ key: 'runner', value: state });
   else await db.kv.delete('runner');
+}
+
+/** kv rows that belong to the coach (API key, caches, usage): never exported in backups, kept on import. */
+export function isCoachKey(key: string): boolean {
+  return key === 'coach' || key.startsWith('coach:');
 }
 
 export async function requestPersistence() {

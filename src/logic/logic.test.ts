@@ -350,6 +350,20 @@ describe('backup', () => {
     await expect(importBackup({ app: 'nope' })).rejects.toThrow();
   });
 
+  it('never exports the coach rows and keeps them across an import', async () => {
+    await db.kv.put({ key: 'coach', value: { apiKey: 'sk-ant-secret' } });
+    await db.kv.put({ key: 'coach:brief', value: { date: '2026-01-01' } });
+    await db.kv.put({ key: 'settings', value: DEFAULT_SETTINGS });
+    const file = JSON.parse(JSON.stringify(await exportBackup()));
+    expect(file.kv.map((r: { key: string }) => r.key)).toEqual(['settings']);
+    expect(JSON.stringify(file)).not.toContain('sk-ant');
+    await importBackup({ ...file, kv: [{ key: 'coach', value: { apiKey: 'from-backup' } }, ...file.kv] });
+    expect(((await db.kv.get('coach'))?.value as { apiKey: string }).apiKey).toBe('sk-ant-secret');
+    expect(await db.kv.get('coach:brief')).toBeTruthy();
+    await db.kv.delete('coach');
+    await db.kv.delete('coach:brief');
+  });
+
   it('imports a backup written by the first release and plans sessions from it', async () => {
     const res = await importBackup(JSON.parse(JSON.stringify(V1_BACKUP)));
     expect(res).toEqual({ sessions: 2, sets: 9 });

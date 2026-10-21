@@ -9,6 +9,7 @@ import { restRemainingSec, type RunnerAction, type RunnerState } from '../../log
 import { nextWorkStep, type RestStep, type WorkStep } from '../../logic/steps';
 import { exerciseForStep, loadFor, targetFor } from './WorkView';
 import { RestPauseSwitch } from './RestPauseSwitch';
+import { CoachNote } from './CoachNote';
 
 function prevWorkStep(state: RunnerState): WorkStep | undefined {
   for (let i = state.index - 1; i >= 0; i--) {
@@ -33,6 +34,9 @@ export function RestView(props: { state: RunnerState; step: RestStep; dispatch: 
   }, [overtime]);
 
   const next = nextWorkStep(state.steps, state.index);
+  const prev = prevWorkStep(state);
+  const note = prev ? state.coach?.notes?.[prev.id] : undefined;
+  const cue = note?.claude?.cue ?? note?.rule?.cue;
 
   return (
     <div className={`rest-grid${overtime ? ' overtime' : ''}`}>
@@ -55,6 +59,7 @@ export function RestView(props: { state: RunnerState; step: RestStep; dispatch: 
         <button className={`btn huge block ${overtime ? 'primary' : ''}`} onClick={() => dispatch({ type: 'next', now: Date.now() })}>
           <IconSkip width={26} height={26} /> {overtime ? 'Start next set' : 'Skip rest'}
         </button>
+        {note && <CoachNote state={state} note={note} dispatch={dispatch} />}
       </section>
 
       {next && next.kind === 'work' && (
@@ -74,6 +79,7 @@ export function RestView(props: { state: RunnerState; step: RestStep; dispatch: 
               <b>{rangeText(next.rir)}</b> RIR
             </span>
           </div>
+          {cue && prev && prev.slot === next.slot && <div className="coach-cue">Next set: {cue}</div>}
           {next.restPause?.mini === 1 && !state.done[next.id] && <RestPauseSwitch state={state} slot={next.slot} dispatch={dispatch} />}
           {(() => {
             const last = state.lastTime[next.slot];

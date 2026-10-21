@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Link, useParams } from 'react-router-dom';
 import { getTemplate, PRESCRIPTIONS, PULLUP_ROADMAP } from '../data/program';
-import { db, type SetRecord } from '../db/db';
+import { db, DEFAULT_SETTINGS, type SetRecord, type Settings } from '../db/db';
+import { sessionReview } from '../logic/coach';
+import { CoachReviewCard } from './coach/CoachReviewCard';
 import { Note } from '../components/controls';
 import { IconTrend } from '../components/icons';
 import { formatClock } from '../hooks/useNow';
@@ -15,9 +17,12 @@ export default function Summary() {
   const id = Number(useParams().id);
   const session = useLiveQuery(() => db.sessions.get(id), [id]);
   const sets = useLiveQuery(() => db.sets.where('sessionId').equals(id).toArray(), [id]);
+  const sessions = useLiveQuery(() => db.sessions.toArray(), []);
+  const allSets = useLiveQuery(() => db.sets.toArray(), []);
+  const settingsRow = useLiveQuery(() => db.kv.get('settings'), []);
+  const settings = useMemo(() => ({ ...DEFAULT_SETTINGS, ...((settingsRow?.value as Partial<Settings> | undefined) ?? {}) }), [settingsRow]);
   const [notes, setNotes] = useState<string>();
   const [next, setNext] = useState<NextTime>();
-  const [prs, setPrs] = useState<string[]>([]);
   const [stageDone, setStageDone] = useState(false);
 
   useEffect(() => {
@@ -25,12 +30,21 @@ export default function Summary() {
     nextTimeSuggestions(session.templateId, session.variantId).then(setNext);
   }, [session, stageDone]);
 
-  useEffect(() => {
-    if (!sets || !session) return;
-    findPrs(sets, session.startedAt).then(setPrs);
-  }, [sets, session]);
+  const review = useMemo(() => {
+    if (!session || !sets || !sessions || !allSets || !next) return undefined;
+    return sessionReview({
+      session,
+      sets,
+      targets: session.coach?.targets,
+      allSets,
+      sessions,
+      settings,
+      nextTime: next.map((n) => ({ slot: n.prescription.key, name: n.prescription.name, message: n.suggestion.message })),
+    });
+  }, [session, sets, sessions, allSets, settings, next]);
 
-  if (!session || !sets) return null;
+  if (!session || !sets || !sessions || !allSets) return null;
+  const prs = review?.prs ?? [];
   const template = getTemplate(session.templateId);
   const duration = ((session.endedAt ?? Date.now()) - session.startedAt) / 1000;
   const bySlot = groupSlots(sets);
@@ -68,6 +82,7 @@ export default function Summary() {
           {p}
         </Note>
       ))}
+      {review && <CoachReviewCard session={session} sets={sets} review={review} sessions={sessions} allSets={allSets} settings={settings} />}
 
       {stageUp && stageUp.suggestion.nextStage !== undefined && !stageDone && (
         <div className="card row wrap" style={{ borderColor: 'var(--good)' }}>
@@ -164,22 +179,4 @@ export function groupSlots(sets: SetRecord[]): [string, SetRecord[]][] {
   }
   for (const list of map.values()) list.sort((a, b) => a.setNumber - b.setNumber);
   return [...map.entries()];
-}
-
-/** Rep PRs: best single set for a slot at the same variation and load, versus all earlier sessions. */
-async function findPrs(sets: SetRecord[], before: number): Promise<string[]> {
-  const out: string[] = [];
-  for (const [slot, list] of groupSlots(sets)) {
-    if (slot.includes('.rp-')) continue;
-    const best = Math.max(...list.map((s) => s.reps));
-    const v = list[0].variationId;
-    const kg = list[0].loadKg ?? 0;
-    const previous = await db.sets.where('slot').equals(slot).filter((s) => s.completedAt < before && s.variationId === v && (s.loadKg ?? 0) === kg).toArray();
-    if (previous.length === 0) continue;
-    const prevBest = Math.max(...previous.map((s) => s.reps));
-    if (best > prevBest) {
-      out.push(`Rep PR on ${PRESCRIPTIONS[slot]?.name ?? slot}: ${best} reps${kg ? ` @ +${kg} kg` : ''} (previous best ${prevBest}).`);
-    }
-  }
-  return out;
 }

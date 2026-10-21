@@ -268,6 +268,12 @@ export function suggest(
   };
 }
 
+/** Bad-day protocol applied mid-session: last time's reps clamped to the range, no progression. */
+export function badDaySuggestion(s: Suggestion, p: Pick<Prescription, 'reps'>, planned: number, lastReps?: number[]): Suggestion {
+  const repsTarget = Array.from({ length: planned }, (_, i) => Math.max(p.reps.min, Math.min(p.reps.max, lastReps?.[i] ?? p.reps.min)));
+  return { ...s, kind: 'bad-day', repsTarget, message: "Bad day: ~3 RIR, don't chase progression. Showing up is the win." };
+}
+
 function repsOf(s: SlotSession, planned: number, p: Prescription): number[] {
   return Array.from({ length: planned }, (_, i) => {
     const r = s.sets[i] ? s.sets[i].reps : p.reps.min;

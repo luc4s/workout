@@ -31,6 +31,13 @@ animated technique guides.
   and during the session until the first mini-set is logged. The app suggests one (★): the
   movement that stalled, else the one that ended today's sets with the most reps in reserve,
   else the one not done last time.
+- **Coach** — a rule-based coach that works offline, and optionally Claude on top (see *Coach*
+  below). On *Today*: which session to do and why, the targets, weights and estimated time of that
+  session, a daily brief. During a session: a note on every rest (set vs target, RIR, rest taken,
+  pace, a cue for the next set) and a bad-day switch when the first sets fall short. After: a
+  review (per-exercise verdicts, work / rest / transition time, volume vs last time, RIR
+  calibration, PRs) with next-time suggestions. Suggestions are accepted with one tap; nothing
+  changes otherwise.
 - **Exercise guides** — setup, execution, cues, common mistakes, regressions/progressions and
   sources for every movement, with a 3D animation (glTF) you can rotate — drag, double-tap to
   reset, Side / Front / ¾ presets — and red-highlighted mistake demos. Every pose is checked
@@ -108,15 +115,47 @@ To check a change actually fits, drive a headless Chrome through a session rathe
 the browser at desktop size — `document.querySelector('.runner-body')` should report
 `scrollHeight === clientHeight` on every step at 960 × 600.
 
+## Coach
+
+Two layers. The **rule layer** (`src/logic/coach.ts`) is deterministic, needs no network and is the
+source of truth: `recommendSession` (rotation, week coverage, days since a full session, stalls,
+deload age), `sessionOverview` (targets / weights / time from `prepareSession`), `setFeedback`
+(after every logged set) and `sessionReview` (after the session). The **Claude layer**
+(`src/coach/`) sends the rule layer's verdict plus a compact context pack and asks for judgement in
+a fixed JSON shape (structured outputs). It is advisory: it may propose a `deload`, `bad-day`,
+`drop-sets`, `hold`, `variation`, `load`, `rest`, `skip-finisher` or `switch-session` suggestion;
+each maps to something you could tap yourself (setup toggles, runner actions, settings) and is only
+applied when you accept it (`src/coach/apply.ts`).
+
+Setup: create an API key at platform.claude.com (a dedicated key with a spending limit), paste it
+in Settings → Coach, *Save & test*. The key is stored on the device only — never in backups, and
+kept when a backup is imported. Calls go straight from the browser to the Anthropic API (official
+SDK, loaded on first use). Model: Claude Fable 5.1 (`effort: low` for rest notes, `high` for brief
+and review), falling back once to Claude Opus 5.5 on a rate limit, an overload, a model not enabled
+on the key, or a refusal; the model that answered is shown with every note. Without a key, offline
+or on any error the rule layer alone is shown and logging is never blocked.
+
+What is sent (`src/coach/context.ts`): the date, your settings (body weight, pull-up max, roadmap
+stage, chosen variations and loads, rest scale), the week's coverage, the last 8 completed sessions
+compressed per exercise (variation, load, reps, RIR, duration; 4 sessions for a rest note), the rule
+layer's verdict, today's logged sets, and your session notes for the review. Nothing else. Rough
+cost on Fable 5.1 (thinking tokens are billed as output): ≈ $0.02–0.04 per rest note, ≈ $0.1–0.2
+for a brief or review — about $0.7–1 for a full session; Settings shows the month's usage.
+
 ## Code map
 
 - `src/data/program.ts` — the program encoded from the PDF; `exercises.ts` — technique guides; `rules.ts`
 - `src/logic/` — `steps.ts` (session → steps), `runner.ts` (timer state machine), `progression.ts`,
-  `schedule.ts`, `session.ts` (DB orchestration)
+  `schedule.ts`, `session.ts` (DB orchestration), `targets.ts` (rep target / load for a step),
+  `coach.ts` (rule-based coach)
+- `src/coach/` — the Claude layer: `client.ts` (SDK call, fallback, usage), `schema.ts` (JSON
+  schemas + guards), `prompts.ts` (system prompt generated from the program), `context.ts` (what is
+  sent), `ask.ts`, `apply.ts` (accepted suggestions → app actions), `store.ts` (key, toggles, usage)
 - `src/anim3d/` — 3D animations: `body.ts` (proportions, bones), `pose.ts` / `rig.ts` (poses,
   FK + two-bone IK), `scene.ts` (mannequin, props, baking), `exercises/*.ts` (one pose spec per
   exercise, with its references), `AnimPlayer.tsx` / `stage.ts` (three.js viewer)
-- `src/screens/` — UI; `src/screens/runner/` — the in-session views
+- `src/screens/` — UI; `src/screens/runner/` — the in-session views; `src/screens/coach/` — the
+  coach cards (Today, Summary, Settings)
 - `src/styles/global.css` — design scale and shared components; `src/screens/runner/runner.css`
   — the in-session layout (see *Layout constraint* above)
 - `scripts/build-anims.ts` — writes `public/anims/<id>.glb` and `src/anim3d/REFERENCES.md`
