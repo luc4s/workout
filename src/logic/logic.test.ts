@@ -7,7 +7,7 @@ import { applyStage, detectStall, suggest, suggestRestPause, type SlotSession } 
 import { createRunner, intervalPosition, restRemainingSec, runnerReducer, sessionElapsedMs } from './runner';
 import { suggestNext, warningsFor } from './schedule';
 import { lastRestPauseSlot, prepareSession } from './session';
-import { buildSteps, dropRemainingSets, type Step, type WorkStep } from './steps';
+import { buildSteps, dropRemainingSets, estimateDurationSec, estimateWorkSec, type Step, type WorkStep } from './steps';
 
 const OPTS = { finisher: false, deload: false, badDay: false };
 const works = (steps: Step[]) => steps.filter((s): s is WorkStep => s.kind === 'work');
@@ -72,6 +72,26 @@ describe('buildSteps', () => {
     const pulls = works(steps).filter((w) => w.slot === 'A.pullup');
     expect(pulls).toHaveLength(3);
     expect(pulls[0].reps).toEqual({ min: 6, max: 8 });
+  });
+
+  it('estimates the session length from the planned sets, reps and tempo', () => {
+    const steps = buildSteps(getTemplate('A'), undefined, { ...OPTS, finisher: true, override: (p) => applyStage(p, { pullupStage: 1 }) });
+    const dip = works(steps).find((w) => w.slot === 'A.dip')!;
+    const bss = works(steps).find((w) => w.slot === 'A.bss')!;
+    expect(estimateWorkSec(dip, 6)).toBe(15 + 6 * 3);
+    expect(estimateWorkSec(dip)).toBe(15 + 8 * 3);
+    expect(estimateWorkSec(bss, 8)).toBe(15 + 2 * 8 * 3 + 10);
+    const base = estimateDurationSec(steps);
+    const warm = 360;
+    const rests = steps.filter((s) => s.kind === 'rest').reduce((a, s) => a + (s as { durationSec: number }).durationSec, 0);
+    const work = works(steps).reduce((a, w) => a + estimateWorkSec(w), 0);
+    expect(base).toBe(warm + rests + work + 2 * 45); // pair 1 → pair 2 → finisher
+    // Lower targets shorten it; observed set times replace the estimate.
+    const targets = { 'A.dip': [5, 5, 5] };
+    expect(estimateDurationSec(steps, { targets })).toBe(base - 3 * 3 * 3);
+    expect(estimateDurationSec(steps, { workSec: () => 60 })).toBe(warm + rests + works(steps).length * 60 + 90);
+    expect(Math.round(base / 60)).toBeGreaterThanOrEqual(35);
+    expect(Math.round(base / 60)).toBeLessThanOrEqual(50);
   });
 
   it('dropRemainingSets removes later sets of one slot and fixes rests', () => {

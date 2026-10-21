@@ -217,6 +217,10 @@ describe('setFeedback', () => {
     expect(onTime.pace.over).toBe(false);
     const late = setFeedback(s, dip1(), logged(s, 'A.dip#1', 7, 1, at), [], t0 + 30 * 60_000);
     expect(late.pace.over).toBe(true);
+    // Slow sets today push the projection out: 3-minute sets on every remaining step.
+    const slow = [logged(s, 'A.pullup#1', 4, 1, t0 + 7 * 60_000, 180), logged(s, 'A.dip#1', 7, 1, at, 180)];
+    const slowFb = setFeedback(s, dip1(), slow[1], slow, at);
+    expect(slowFb.pace.projectedMin).toBeGreaterThan(onTime.pace.projectedMin + 20);
     expect(late.headline).toMatch(/On pace for ~\d+ min/);
     expect(late.suggestion?.kind).toBe('skip-finisher');
   });

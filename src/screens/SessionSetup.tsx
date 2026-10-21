@@ -170,7 +170,7 @@ export default function SessionSetup() {
           <h1>{template.name}</h1>
           <div className="muted">
             {template.subtitle}
-            {prep && !isRowing && <> · est. {Math.round(estimateDurationSec(prep.steps) / 60)} min</>}
+            {prep && !isRowing && <> · est. {Math.round(estimateDurationSec(prep.steps, { targets: Object.fromEntries(Object.entries(prep.suggestions).map(([k, s]) => [k, s.repsTarget])) }) / 60)} min</>}
           </div>
         </div>
       </div>

@@ -240,7 +240,8 @@ export function sessionOverview(prep: Preparation): SessionOverview {
     else if (s?.kind === 'changed' && last) changes.push(`${p.name}: restart at the bottom of the range`);
   }
   const weights = rows.filter((r) => r.loadKg !== undefined && r.loadKg > 0).map((r) => ({ slot: r.slot, name: r.name, kg: r.loadKg!, lastKg: r.lastKg }));
-  return { rows, estMin: Math.round(estimateDurationSec(prep.steps) / 60), weights, changes };
+  const targets = Object.fromEntries(Object.entries(prep.suggestions).map(([k, s]) => [k, s.repsTarget]));
+  return { rows, estMin: Math.round(estimateDurationSec(prep.steps, { targets }) / 60), weights, changes };
 }
 
 /* ---------- during: after each logged set ---------- */
@@ -340,10 +341,16 @@ export function setFeedback(state: RunnerState, step: WorkStep, record: SetRecor
     }
   }
 
-  // Session pace
+  // Session pace: the remaining steps at the athlete's own set durations today (per exercise when
+  // logged, else the session mean), planned rests as written.
   const elapsedMin = sessionElapsedMs(state, now) / 60000;
   const remaining = state.steps.slice(state.index).filter((s) => !(s.kind === 'work' && state.done[s.id]));
-  const projectedMin = elapsedMin + estimateDurationSec(remaining) / 60;
+  const durations = today.filter((s) => (s.durationSec ?? 0) > 0 && !stepIdOf(s).startsWith('rp:'));
+  const mean = (list: SetRecord[]) => (list.length ? list.reduce((a, s) => a + s.durationSec!, 0) / list.length : undefined);
+  const sessionMean = mean(durations);
+  const targets = Object.fromEntries(Object.entries(state.suggestions).map(([k, s]) => [k, s.repsTarget]));
+  const workSec = (st: WorkStep) => (st.restPause ? undefined : mean(durations.filter((s) => s.slot === st.slot)) ?? sessionMean);
+  const projectedMin = elapsedMin + estimateDurationSec(remaining, { targets, workSec }) / 60;
   const over = remaining.some((s) => s.kind === 'work') && projectedMin > template.targetMin + 2;
   if (over) {
     lines.push({
