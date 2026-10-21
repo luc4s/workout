@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { SkeletonPlayer } from '../../anim/SkeletonPlayer';
+import { AnimPlayer } from '../../anim3d/AnimPlayer';
 import { EXERCISES } from '../../data/exercises';
 import { TimerRing } from '../../components/TimerRing';
 import { IconPlay } from '../../components/icons';
@@ -42,7 +42,7 @@ export function IntervalView(props: {
           <h1 className="work-name">{step.title}</h1>
           <div className="muted">Total {formatClock(step.phases.reduce((a, p) => a + p.durationSec, 0))}</div>
           <div className="next-anim" style={{ width: '100%' }}>
-            <SkeletonPlayer exerciseId={step.exerciseId} />
+            <AnimPlayer exerciseId={step.exerciseId} />
           </div>
           <button
             className="btn primary huge block"
@@ -117,7 +117,7 @@ export function IntervalView(props: {
         <div className="card stack tight">
           <div className="section-title">{phase.intensity === 'hard' ? 'Hard — just sustainable' : phase.intensity === 'steady' ? 'Conversational pace' : 'Easy — recover'}</div>
           <div className="next-anim">
-            <SkeletonPlayer exerciseId="rowing-stroke" />
+            <AnimPlayer exerciseId="rowing-stroke" />
           </div>
           <div className="cue-row">
             {EXERCISES['rowing-stroke'].cues.slice(0, 3).map((c) => (

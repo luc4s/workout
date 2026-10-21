@@ -1,4 +1,4 @@
-import { SkeletonPlayer } from '../../anim/SkeletonPlayer';
+import { AnimPlayer } from '../../anim3d/AnimPlayer';
 import { Check } from '../../components/controls';
 import { TimerRing } from '../../components/TimerRing';
 import { formatClock } from '../../hooks/useNow';
@@ -21,7 +21,7 @@ export function WarmupView(props: { state: RunnerState; step: WarmupStep; dispat
           </div>
         </TimerRing>
         <div className="warm-anim">
-          <SkeletonPlayer exerciseId="joint-circles" />
+          <AnimPlayer exerciseId="joint-circles" />
         </div>
       </section>
       <section className="card stack">

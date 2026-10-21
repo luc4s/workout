@@ -35,6 +35,8 @@ export interface Suggestion {
   stall?: 'deload' | 'add-set';
   /** Pull-up roadmap: index of the stage the user can advance to. */
   nextStage?: number;
+  /** Logged session the targets were derived from (shown as "last time"). */
+  basisSessionId?: number;
 }
 
 /** Group a slot's logged sets into sessions, newest first. */
@@ -123,11 +125,23 @@ export function suggest(
   const lastAny = history[0];
 
   if (ctx.deload) {
-    return { ...base, kind: 'deload', repsTarget: fill(p.reps.min), message: 'Deload: same load, stop at ~3–4 RIR.' };
+    return {
+      ...base,
+      kind: 'deload',
+      basisSessionId: (last ?? lastAny)?.sessionId,
+      repsTarget: fill(p.reps.min),
+      message: 'Deload: same load, stop at ~3–4 RIR.',
+    };
   }
   if (ctx.badDay) {
     const reps = lastAny ? repsOf(lastAny, plannedSets, p) : fill(p.reps.min);
-    return { ...base, kind: 'bad-day', repsTarget: reps, message: "Bad day: ~3 RIR, don't chase progression. Showing up is the win." };
+    return {
+      ...base,
+      kind: 'bad-day',
+      basisSessionId: lastAny?.sessionId,
+      repsTarget: reps,
+      message: "Bad day: ~3 RIR, don't chase progression. Showing up is the win.",
+    };
   }
   if (!last) {
     const loadable = isLoadable(p, variationId);
@@ -143,13 +157,14 @@ export function suggest(
   }
 
   const stall = detectStall(p, relevant);
+  const fromLast = { ...base, basisSessionId: last.sessionId };
   const lastVariation = last.sets[0]?.variationId;
   const lastLoadKg = last.sets[0]?.loadKg ?? 0;
   const sameVariation = !p.variations || !lastVariation || lastVariation === variationId;
   const sameLoad = !plan.loadKg || plan.loadKg === lastLoadKg;
   if (!sameVariation || !sameLoad) {
     return {
-      ...base,
+      ...fromLast,
       kind: 'changed',
       stall,
       repsTarget: fill(p.reps.min),
@@ -169,7 +184,7 @@ export function suggest(
       if (streak >= needed) {
         const next = PULLUP_ROADMAP[stageIdx + 1];
         return {
-          ...base,
+          ...fromLast,
           kind: 'stage-up',
           repsTarget: fill(p.reps.max),
           nextStage: stageIdx + 1,
@@ -177,7 +192,7 @@ export function suggest(
         };
       }
       return {
-        ...base,
+        ...fromLast,
         kind: 'hold',
         repsTarget: fill(p.reps.max),
         message: `Top of range hit — repeat ${stage.label} ${needed - streak} more time to own it.`,
@@ -189,7 +204,7 @@ export function suggest(
     if (isLoadable(p, variationId)) {
       const step = settings.loadStep || LOAD_STEP_KG;
       return {
-        ...base,
+        ...fromLast,
         kind: 'add-load',
         plan: { ...plan, loadKg: (plan.loadKg ?? 0) + step },
         repsTarget: fill(p.reps.min),
@@ -201,7 +216,7 @@ export function suggest(
     if (idx >= 0 && idx < chain.length - 1) {
       const next = chain[idx + 1];
       return {
-        ...base,
+        ...fromLast,
         kind: 'next-variation',
         plan: { ...plan, variationId: next.id, loadKg: next.loadable ? 0 : undefined },
         repsTarget: fill(p.reps.min),
@@ -210,17 +225,31 @@ export function suggest(
     }
     if (p.assisted) {
       return {
-        ...base,
+        ...fromLast,
         kind: 'hold',
         repsTarget: fill(p.reps.max),
         message: 'Top of range — use less assistance and drop back to the bottom of the range.',
       };
     }
     return {
-      ...base,
+      ...fromLast,
       kind: 'hold',
       repsTarget: fill(p.reps.max),
       message: 'Top of range on the hardest option — slow the lowering or add a set.',
+    };
+  }
+
+  const lastRaw = last.sets.map((s) => s.reps);
+  const lastText = `${lastRaw.join('-')}${lastRaw.length !== plannedSets ? ` (${lastRaw.length} set${lastRaw.length === 1 ? '' : 's'})` : ''}`;
+  // Sets below the range (e.g. a new roadmap stage with a higher minimum) are already raised to the
+  // bottom of the range — that is the progression, so don't add a rep on top.
+  if (last.sets.slice(0, plannedSets).some((s) => s.reps < p.reps.min)) {
+    return {
+      ...fromLast,
+      kind: 'changed',
+      stall,
+      repsTarget: lastReps,
+      message: `Last time ${lastText} — now ${plannedSets} × ${rangeText(p.reps)}: ${lastReps.join('-')}.`,
     };
   }
 
@@ -231,12 +260,18 @@ export function suggest(
   });
   targets[weakest] = Math.min(p.reps.max, targets[weakest] + 1);
   return {
-    ...base,
+    ...fromLast,
     kind: 'add-reps',
     stall,
     repsTarget: targets,
-    message: `Beat last time: ${lastReps.join('-')} → ${targets.join('-')}.`,
+    message: `Beat last time: ${lastText} → ${targets.join('-')}.`,
   };
+}
+
+/** Bad-day protocol applied mid-session: last time's reps clamped to the range, no progression. */
+export function badDaySuggestion(s: Suggestion, p: Pick<Prescription, 'reps'>, planned: number, lastReps?: number[]): Suggestion {
+  const repsTarget = Array.from({ length: planned }, (_, i) => Math.max(p.reps.min, Math.min(p.reps.max, lastReps?.[i] ?? p.reps.min)));
+  return { ...s, kind: 'bad-day', repsTarget, message: "Bad day: ~3 RIR, don't chase progression. Showing up is the win." };
 }
 
 function repsOf(s: SlotSession, planned: number, p: Prescription): number[] {
@@ -263,14 +298,17 @@ function topStreak(relevant: SlotSession[], planned: number, top: number): numbe
   return n;
 }
 
-/** Comparable performance score: harder variation > more load > more total reps. */
+/**
+ * Comparable performance score: harder variation > more load > more reps per set.
+ * Reps are averaged so a change in set count (pull-up roadmap 4×5 → 3×6) isn't read as a regression.
+ */
 export function scoreOf(p: Prescription, s: SlotSession): number {
   const chain = chainOf(p);
   const v = s.sets[0]?.variationId;
   const rank = Math.max(0, chain.findIndex((c) => c.id === v));
   const load = s.sets[0]?.loadKg ?? 0;
-  const total = s.sets.reduce((a, x) => a + x.reps, 0);
-  return rank * 1e6 + load * 1e3 + total;
+  const mean = s.sets.length ? s.sets.reduce((a, x) => a + x.reps, 0) / s.sets.length : 0;
+  return rank * 1e6 + load * 1e3 + mean;
 }
 
 /**
@@ -312,4 +350,56 @@ export function estimatePullupMax(set: Pick<SetRecord, 'exerciseId' | 'variation
 
 export function weeksSince(ts: number | undefined, now: number): number | undefined {
   return ts === undefined ? undefined : Math.floor((now - ts) / (7 * DAY));
+}
+
+export interface RestPauseChoice {
+  slot: string;
+  reason: string;
+}
+
+/** Short label for a rest-pause option, e.g. "Pike push-ups". */
+export function restPauseLabel(p: Prescription): string {
+  const name = p.name.replace(/^Rest-pause\s+/i, '');
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+/**
+ * Which rest-pause finisher to do. In order:
+ * 1. the movement whose main lift has stalled — it needs the extra volume;
+ * 2. the movement that ended today's sets furthest from failure (mean RIR ≥ 0.5 higher) — it has the most left;
+ * 3. the one not done last time;
+ * 4. the default (first) option.
+ */
+export function suggestRestPause(
+  options: Prescription[],
+  ctx: { stalls: Record<string, boolean | undefined>; today: Pick<SetRecord, 'slot' | 'rir'>[]; lastSlot?: string },
+): RestPauseChoice | undefined {
+  if (!options.length) return undefined;
+  const label = (p: Prescription) => restPauseLabel(p).toLowerCase();
+
+  const stalled = options.filter((o) => o.basedOn && ctx.stalls[o.basedOn]);
+  if (stalled.length === 1) return { slot: stalled[0].key, reason: `${restPauseLabel(stalled[0])} have stalled — extra volume there.` };
+
+  const meanRir = (o: Prescription) => {
+    const rirs = ctx.today.filter((s) => s.slot === o.basedOn && s.rir !== undefined).map((s) => s.rir!);
+    return rirs.length ? rirs.reduce((a, b) => a + b, 0) / rirs.length : undefined;
+  };
+  const rirs = options.map((o) => ({ o, rir: meanRir(o) }));
+  if (rirs.every((r) => r.rir !== undefined)) {
+    const sorted = [...rirs].sort((a, b) => b.rir! - a.rir!);
+    if (sorted[0].rir! - sorted[1].rir! >= 0.5) {
+      const fmt = (n: number) => String(Math.round(n * 10) / 10);
+      return {
+        slot: sorted[0].o.key,
+        reason: `${restPauseLabel(sorted[0].o)} ended at ~${fmt(sorted[0].rir!)} RIR today vs ~${fmt(sorted[1].rir!)} for ${label(sorted[1].o)} — most left in the tank.`,
+      };
+    }
+  }
+
+  const last = options.find((o) => o.key === ctx.lastSlot);
+  if (last) {
+    const other = options.find((o) => o !== last)!;
+    return { slot: other.key, reason: `You did ${label(last)} last time — switch it up.` };
+  }
+  return { slot: options[0].key, reason: 'No history yet — start with the default.' };
 }

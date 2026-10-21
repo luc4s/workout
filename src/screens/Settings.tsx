@@ -5,6 +5,7 @@ import { db, DEFAULT_SETTINGS, saveSettings, type Settings } from '../db/db';
 import { downloadJson, exportBackup, importBackup } from '../db/backup';
 import { Chips, Note, Stepper } from '../components/controls';
 import { labelOf } from '../logic/schedule';
+import { CoachSettingsCard } from './coach/CoachSettingsCard';
 
 export default function SettingsScreen() {
   const settings = (useLiveQuery(() => db.kv.get('settings'), [])?.value as Settings | undefined) ?? DEFAULT_SETTINGS;
@@ -102,7 +103,7 @@ export default function SettingsScreen() {
           <button
             className="btn danger"
             onClick={async () => {
-              if (!confirm('Delete ALL sessions, sets and settings on this device?')) return;
+              if (!confirm('Delete ALL sessions, sets, settings and the coach API key on this device?')) return;
               await Promise.all([db.sessions.clear(), db.sets.clear(), db.kv.clear()]);
               setMessage({ kind: 'warn', text: 'All data deleted.' });
             }}
@@ -111,6 +112,8 @@ export default function SettingsScreen() {
           </button>
         </div>
       </div>
+
+      <CoachSettingsCard />
 
       <div className="card stack">
         <div className="section-title">Current variations</div>

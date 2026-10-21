@@ -10,6 +10,7 @@ export type ExerciseId =
   | 'archer-pushup'
   | 'deficit-pushup'
   | 'pistol-squat'
+  | 'archer-squat'
   | 'step-up'
   | 'pike-pushup'
   | 'hanging-leg-raise'
@@ -68,6 +69,8 @@ export interface Prescription {
   defaultVariation?: string;
   /** Short hint shown while working (e.g. "Weaker leg first"). */
   hint?: string;
+  /** Rest-pause options: the main slot of the same movement earlier in the session. */
+  basedOn?: string;
 }
 
 export interface WarmupBlock {

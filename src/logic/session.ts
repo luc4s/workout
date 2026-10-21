@@ -18,6 +18,8 @@ export interface SessionOptions {
   variantId: string;
   flags: SessionFlags;
   restPauseSlot?: string;
+  /** Variations picked on the setup screen, by slot (override the remembered ones). */
+  variations?: Record<string, string>;
 }
 
 /** Prescriptions used by a template (with roadmap applied), keyed by slot. */
@@ -51,7 +53,8 @@ export interface Preparation {
 }
 
 export async function prepareSession(opts: SessionOptions): Promise<Preparation> {
-  const settings = await getSettings();
+  const stored = await getSettings();
+  const settings = opts.variations ? { ...stored, variations: { ...stored.variations, ...opts.variations } } : stored;
   const template = getTemplate(opts.templateId);
   const steps = buildSteps(template, opts.variantId, {
     ...opts.flags,
@@ -69,17 +72,22 @@ export async function prepareSession(opts: SessionOptions): Promise<Preparation>
     const s = suggest(p, planned, history[p.key] ?? [], settings, opts.flags);
     suggestions[p.key] = s;
     plans[p.key] = s.plan;
-    const last = history[p.key]?.[0];
-    if (last) {
-      lastTime[p.key] = {
-        at: last.at,
-        reps: last.sets.map((x) => x.reps),
-        loadKg: last.sets[0]?.loadKg,
-        variationId: last.sets[0]?.variationId,
-      };
-    }
+    // "Last time" is the session the targets were built from, so the two always agree.
+    const slotHistory = history[p.key] ?? [];
+    const last = slotHistory.find((h) => h.sessionId === s.basisSessionId) ?? slotHistory[0];
+    if (last) lastTime[p.key] = lastTimeOf(last);
   }
   return { steps, suggestions, plans, lastTime, prescriptions, settings };
+}
+
+export function lastTimeOf(h: SlotSession): LastTime {
+  return {
+    at: h.at,
+    reps: h.sets.map((x) => x.reps),
+    loadKg: h.sets[0]?.loadKg,
+    variationId: h.sets[0]?.variationId,
+    flag: h.badDay ? 'bad-day' : h.deload ? 'deload' : undefined,
+  };
 }
 
 export async function startSession(opts: SessionOptions, prep: Preparation): Promise<RunnerState> {
@@ -103,6 +111,7 @@ export async function startSession(opts: SessionOptions, prep: Preparation): Pro
     now,
   });
   await saveRunner(runner);
+  await db.kv.delete('coach:next');
   return runner;
 }
 
@@ -148,8 +157,17 @@ export async function logSet(runner: RunnerState, step: WorkStep, input: SetInpu
 }
 
 export async function finishSession(runner: RunnerState, extra: { notes?: string; rowing?: { distanceM?: number; avgSplit?: string } } = {}) {
-  await db.sessions.update(runner.sessionId, { endedAt: Date.now(), ...extra });
+  const current = await db.sessions.get(runner.sessionId);
+  const targets = Object.fromEntries(Object.entries(runner.suggestions).map(([slot, s]) => [slot, s.repsTarget]));
+  const coach = { ...current?.coach, targets, ...(runner.coach?.notes && Object.keys(runner.coach.notes).length ? { notes: runner.coach.notes } : {}) };
+  await db.sessions.update(runner.sessionId, { endedAt: Date.now(), flags: runner.flags, coach, ...extra });
   await saveRunner(undefined);
+}
+
+/** Mid-session protocol switch (bad day / finisher off): the session record follows the runner. */
+export async function setSessionFlags(sessionId: number, flags: Partial<SessionFlags>) {
+  const s = await db.sessions.get(sessionId);
+  if (s) await db.sessions.update(sessionId, { flags: { ...s.flags, ...flags } });
 }
 
 export async function abandonSession(runner: RunnerState) {
@@ -168,6 +186,16 @@ export async function advanceStage(to: number) {
     patch.loads = { ...settings.loads, 'A.pullup': (settings.loads['A.pullup'] ?? 0) + stage.addKg };
   }
   await saveSettings(patch);
+}
+
+/** Slot of the most recently logged rest-pause finisher among `slots`, ignoring one session. */
+export async function lastRestPauseSlot(slots: string[], excludeSessionId?: number): Promise<string | undefined> {
+  const sets = await db.sets.where('slot').anyOf(slots).toArray();
+  let latest: SetRecord | undefined;
+  for (const s of sets) {
+    if (s.sessionId !== excludeSessionId && (!latest || s.completedAt > latest.completedAt)) latest = s;
+  }
+  return latest?.slot;
 }
 
 /** Suggestions for the next time each slot of a template is trained. */

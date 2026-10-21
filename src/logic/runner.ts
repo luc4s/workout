@@ -1,19 +1,37 @@
+import { PRESCRIPTIONS } from '../data/program';
 import type { TemplateId } from '../data/types';
 import type { SessionFlags } from '../db/db';
-import { dropRemainingSets, type Step } from './steps';
-import type { Suggestion } from './progression';
+import type { CoachSuggestion, SetFeedback } from './coach';
+import { badDaySuggestion, type Suggestion } from './progression';
+import { BAD_DAY_RIR, dropOptionalSteps, dropRemainingSets, swapRestPause, type Step, type WorkStep } from './steps';
 
 export interface LastTime {
   at: number;
   reps: number[];
   loadKg?: number;
   variationId?: string;
+  /** The session shown was a bad-day or deload session. */
+  flag?: 'bad-day' | 'deload';
 }
 
 export interface SlotPlan {
   variationId?: string;
   loadKg?: number;
   assistance?: string;
+}
+
+/** Coach feedback for one logged set: the instant rule verdict and, when it arrives, Claude's note. */
+export interface CoachStepNote {
+  rule?: SetFeedback;
+  claude?: { note: string; cue?: string; suggestion?: CoachSuggestion; model: string; at: number; fallback?: boolean };
+}
+
+export interface RunnerCoach {
+  notes: Record<string, CoachStepNote>;
+  /** Step id at which bad-day mode was switched on mid-session. */
+  badDaySince?: string;
+  /** Ids of coach suggestions already applied this session. */
+  accepted?: string[];
 }
 
 export interface RunnerState {
@@ -37,6 +55,8 @@ export interface RunnerState {
   checks: Record<string, boolean>;
   suggestions: Record<string, Suggestion>;
   lastTime: Record<string, LastTime>;
+  /** Coach state (absent on runners saved before the coach existed). */
+  coach?: RunnerCoach;
 }
 
 export type RunnerAction =
@@ -48,9 +68,14 @@ export type RunnerAction =
   | { type: 'adjustRest'; deltaSec: number }
   | { type: 'complete'; stepId: string; now: number }
   | { type: 'dropRemaining'; slot: string }
+  | { type: 'swapRestPause'; slot: string }
   | { type: 'plan'; slot: string; plan: SlotPlan }
   | { type: 'check'; key: string; value: boolean }
-  | { type: 'restartStep'; now: number };
+  | { type: 'restartStep'; now: number }
+  | { type: 'coachNote'; stepId: string; note: Partial<CoachStepNote> }
+  | { type: 'coachAccept'; id: string }
+  /** Mid-session protocol switch: bad-day mode on, or finisher off. Deload cannot start mid-session. */
+  | { type: 'setFlags'; flags: Partial<Pick<SessionFlags, 'badDay' | 'finisher'>>; now: number };
 
 export function createRunner(init: {
   sessionId: number;
@@ -119,12 +144,44 @@ export function runnerReducer(state: RunnerState, action: RunnerAction): RunnerS
     }
     case 'dropRemaining':
       return { ...state, steps: dropRemainingSets(state.steps, state.index, action.slot) };
+    case 'swapRestPause': {
+      // Only before the first mini-set is logged.
+      const p = PRESCRIPTIONS[action.slot];
+      if (!p || state.steps.some((s) => s.kind === 'work' && s.restPause && state.done[s.id])) return state;
+      return { ...state, steps: swapRestPause(state.steps, p) };
+    }
     case 'plan':
       return { ...state, plans: { ...state.plans, [action.slot]: { ...state.plans[action.slot], ...action.plan } } };
     case 'check':
       return { ...state, checks: { ...state.checks, [action.key]: action.value } };
     case 'restartStep':
       return { ...state, stepStartedAt: action.now, pausedAt: undefined, restExtraSec: 0 };
+    case 'coachNote': {
+      const notes = state.coach?.notes ?? {};
+      return { ...state, coach: { ...state.coach, notes: { ...notes, [action.stepId]: { ...notes[action.stepId], ...action.note } } } };
+    }
+    case 'coachAccept': {
+      const accepted = state.coach?.accepted ?? [];
+      if (accepted.includes(action.id)) return state;
+      return { ...state, coach: { notes: {}, ...state.coach, accepted: [...accepted, action.id] } };
+    }
+    case 'setFlags': {
+      let next: RunnerState = { ...state, flags: { ...state.flags, ...action.flags } };
+      if (action.flags.badDay && !state.flags.badDay) {
+        const steps = state.steps.map((s) => (s.kind === 'work' && !s.restPause && !state.done[s.id] ? { ...s, rir: BAD_DAY_RIR } : s));
+        const suggestions = { ...state.suggestions };
+        for (const slot of Object.keys(suggestions)) {
+          const first = steps.find((s): s is WorkStep => s.kind === 'work' && s.slot === slot && !s.restPause);
+          if (!first || !steps.some((s) => s.kind === 'work' && s.slot === slot && !state.done[s.id])) continue;
+          suggestions[slot] = badDaySuggestion(suggestions[slot], { reps: first.reps }, first.totalSets, state.lastTime[slot]?.reps);
+        }
+        next = { ...next, steps, suggestions, coach: { notes: {}, ...state.coach, badDaySince: state.steps[state.index]?.id } };
+      }
+      if (action.flags.finisher === false && state.flags.finisher) {
+        next = { ...next, steps: dropOptionalSteps(next.steps, state.index) };
+      }
+      return next;
+    }
   }
 }
 

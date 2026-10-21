@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { SkeletonPlayer } from '../anim/SkeletonPlayer';
+import { AnimPlayer } from '../anim3d/AnimPlayer';
 import { EXERCISES } from '../data/exercises';
 import { PRESCRIPTIONS, templateOfKey } from '../data/program';
 import type { ExerciseId } from '../data/types';
@@ -28,7 +28,7 @@ export default function Library() {
       <div className="grid grid-3">
         {Object.values(EXERCISES).map((e) => (
           <Link key={e.id} to={`/exercises/${e.id}`} className="card card-link exercise-card stack tight">
-            <SkeletonPlayer exerciseId={e.id} still={0.45} showPhase={false} />
+            <AnimPlayer exerciseId={e.id} still={0.45} showPhase={false} />
             <h3>{e.name}</h3>
             <div className="muted" style={{ fontSize: 14 }}>
               {e.muscles.primary.slice(0, 3).join(' · ')}

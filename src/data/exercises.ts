@@ -837,6 +837,66 @@ export const EXERCISES: Record<ExerciseId, ExerciseGuide> = {
     ],
   },
 
+  'archer-squat': {
+    id: 'archer-squat',
+    name: 'Archer Squat',
+    summary:
+      'From a wide stance, squat deep over one leg while the other leg stays straight out to the side. A side-to-side single-leg squat that builds strength and depth on the way to the full pistol.',
+    muscles: {
+      primary: ['Quadriceps', 'Gluteus maximus', 'Adductors'],
+      secondary: ['Hamstrings (straight leg)', 'Calves', 'Core'],
+    },
+    equipment: ['None', 'Door frame or pole to hold (assisted)', 'Light dumbbell held at the chest (counterweight)'],
+    setup: [
+      'Stand with feet very wide — roughly twice shoulder width — toes pointing forward or slightly out.',
+      'Brace the core and reach the arms forward (or hold a light weight at the chest) to counterbalance.',
+    ],
+    execution: [
+      'Shift your weight over one foot and sit down and back over it in about 2 seconds.',
+      'Keep the working heel flat and the knee tracking over the toes.',
+      'The other leg straightens out to the side; its foot stays on the floor (flat, or on the heel with toes up if mobility is short).',
+      'Go as deep as you control — thigh at least parallel, hip near the heel at full depth.',
+      'Drive through the working heel back to centre, then switch sides. Count reps per side.',
+    ],
+    cues: ['Wide stance, sit over one leg', 'Working heel stays down', 'Other leg long and straight', 'Chest up, arms forward'],
+    mistakes: [
+      {
+        title: 'Working heel lifts',
+        fix: 'Sit back more, reach the arms further forward, or reduce the depth until ankle mobility catches up.',
+      },
+      {
+        title: 'Knee caving in',
+        fix: 'Push the working knee out over the toes; turn the toes out slightly if needed.',
+      },
+      {
+        title: 'Bending the straight leg',
+        fix: 'Keep it long — if you cannot, narrow the stance a little or use less depth.',
+      },
+      {
+        title: 'Torso folding forward',
+        fix: 'Keep the chest up and use a light counterweight held at the chest.',
+      },
+    ],
+    breathing: 'Inhale and brace before you shift, exhale as you drive back to centre.',
+    regressions: ['Hold a door frame or pole for balance', 'Shallower depth (thigh just above parallel)', 'Side lunge'],
+    progressions: [
+      'Full depth with no support',
+      'Pause 2 s at the bottom',
+      'Put less weight on the straight leg until it barely touches (toward the pistol)',
+      'Full pistol squat',
+    ],
+    sources: [
+      {
+        title: 'How to Do the Cossack Squat (closely related side squat) – BarBend',
+        url: 'https://barbend.com/cossack-squat/',
+      },
+      {
+        title: 'Cossack Squat Exercise Guide – Fitness Volt',
+        url: 'https://fitnessvolt.com/cossack-squat-guide/',
+      },
+    ],
+  },
+
   'step-up': {
     id: 'step-up',
     name: 'High Box Step-Up',

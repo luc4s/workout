@@ -1,33 +1,22 @@
 import { useEffect, useState } from 'react';
-import { SkeletonPlayer } from '../../anim/SkeletonPlayer';
+import { AnimPlayer } from '../../anim3d/AnimPlayer';
 import { EXERCISES } from '../../data/exercises';
 import { PRESCRIPTIONS } from '../../data/program';
-import type { ExerciseId } from '../../data/types';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type Settings } from '../../db/db';
-import { Sheet, Stepper } from '../../components/controls';
+import { Sheet, Stepper, VariationSelect } from '../../components/controls';
 import { IconCheck } from '../../components/icons';
 import { formatClock } from '../../hooks/useNow';
-import { isLoadable, LOAD_STEP_KG, rangeText, variationOf } from '../../logic/progression';
+import { LOAD_STEP_KG, rangeText } from '../../logic/progression';
+import { exerciseForStep, loadFor, targetFor, variationChanged } from '../../logic/targets';
 import { relativeDay } from '../../logic/schedule';
 import { stepElapsedMs, type RunnerAction, type RunnerState } from '../../logic/runner';
 import { logSet } from '../../logic/session';
 import { remainingSetsOf, type WorkStep } from '../../logic/steps';
 import { GuideContent } from '../GuideContent';
+import { RestPauseSwitch } from './RestPauseSwitch';
 
-export function exerciseForStep(state: RunnerState, step: { slot: string; exerciseId: ExerciseId }): ExerciseId {
-  const p = PRESCRIPTIONS[step.slot];
-  const v = variationOf(p, state.plans[step.slot]?.variationId);
-  return v?.exerciseId ?? step.exerciseId;
-}
-
-/** Planned added weight for a work step, or undefined when the exercise/variation isn't loaded. */
-export function loadFor(state: RunnerState, step: { slot: string }): number | undefined {
-  const plan = state.plans[step.slot] ?? {};
-  // Session A pull-up loading follows the roadmap stage, which decided whether a load was planned.
-  const loadable = step.slot === 'A.pullup' ? plan.loadKg !== undefined : isLoadable(PRESCRIPTIONS[step.slot], plan.variationId);
-  return loadable ? plan.loadKg ?? 0 : undefined;
-}
+export { exerciseForStep, loadFor, targetFor, variationChanged };
 
 interface Form {
   reps: number;
@@ -51,7 +40,8 @@ export function WorkView(props: {
   const suggestion = state.suggestions[step.slot];
   const last = state.lastTime[step.slot];
   const idx = (step.restPause?.mini ?? step.setNumber) - 1;
-  const target = step.restPause ? undefined : suggestion?.repsTarget[idx];
+  const target = targetFor(state, step);
+  const changedVariation = variationChanged(state, step.slot);
   const loadable = loadFor(state, step) !== undefined;
   const loadStep = (useLiveQuery(() => db.kv.get('settings'), [])?.value as Settings | undefined)?.loadStep || LOAD_STEP_KG;
   const exerciseId = exerciseForStep(state, step);
@@ -59,6 +49,9 @@ export function WorkView(props: {
   const done = !!state.done[step.id];
   const remaining = remainingSetsOf(state.steps, state.index, step.slot);
   const [guideOpen, setGuideOpen] = useState(false);
+  // Cue from the coach's note on the previous set of this exercise.
+  const prevNote = step.setNumber > 1 && !step.restPause ? state.coach?.notes?.[`${step.slot}#${step.setNumber - 1}`] : undefined;
+  const cue = prevNote?.claude?.cue ?? prevNote?.rule?.cue;
   const [saving, setSaving] = useState(false);
 
   const defaultReps = target ?? (step.restPause ? (step.restPause.mini === 1 ? step.reps.min + 7 : 3) : last?.reps[idx] ?? step.reps.min);
@@ -133,30 +126,30 @@ export function WorkView(props: {
             </span>
           )}
         </div>
-        {suggestion && !step.restPause && step.setNumber === 1 && <div className="coach">{suggestion.message}</div>}
+        {changedVariation && !step.restPause ? (
+          <div className="coach">New variation — start at the bottom of the range ({step.reps.min}).</div>
+        ) : suggestion && !step.restPause && step.setNumber === 1 ? (
+          <div className="coach">{suggestion.message}</div>
+        ) : (
+          cue && <div className="coach">Coach: {cue}</div>
+        )}
         {step.restPause && (
           <div className="coach">
             {step.restPause.mini === 1 ? 'Go to ~0 RIR, then rest 15–20 s.' : 'Rep out again — stop when form breaks.'}
           </div>
         )}
+        {step.restPause?.mini === 1 && !done && <RestPauseSwitch state={state} slot={step.slot} dispatch={dispatch} />}
         {p.variations && (
-          <select
-            className="input"
+          <VariationSelect
+            variations={p.variations}
             value={plan.variationId ?? p.defaultVariation}
-            onChange={(e) => dispatch({ type: 'plan', slot: step.slot, plan: { variationId: e.target.value } })}
-            aria-label="Variation"
-          >
-            {p.variations.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.name}
-              </option>
-            ))}
-          </select>
+            onChange={(id) => dispatch({ type: 'plan', slot: step.slot, plan: { variationId: id } })}
+          />
         )}
 
-        <button type="button" className="work-anim" onClick={() => setGuideOpen(true)} aria-label="Open technique guide">
-          <SkeletonPlayer exerciseId={exerciseId} />
-        </button>
+        <div className="work-anim">
+          <AnimPlayer exerciseId={exerciseId} />
+        </div>
         <div className="cue-row">
           {[...new Set((step.hint ? [step.hint] : []).concat(guide.cues))].slice(0, 3).map((c) => (
             <span key={c} className="badge accent">
@@ -184,7 +177,9 @@ export function WorkView(props: {
             <span className="k">Last time</span>
             <b className="num">{lastReps ?? '—'}</b>
             <span className="u">
-              {last ? `${relativeDay(last.at, now)}${last.loadKg ? ` · +${last.loadKg} kg` : ''}` : 'first time'}
+              {last
+                ? `${relativeDay(last.at, now)}${last.loadKg ? ` · +${last.loadKg} kg` : ''}${last.flag ? ` · ${last.flag === 'bad-day' ? 'bad day' : 'deload'}` : ''}`
+                : 'first time'}
             </span>
           </div>
         </div>

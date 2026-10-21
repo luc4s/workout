@@ -5,7 +5,7 @@ import type {
   Range,
   SessionTemplate,
 } from '../data/types';
-import { getVariant } from '../data/program';
+import { getTemplate, getVariant, templateOfKey } from '../data/program';
 
 export interface WarmupStep {
   kind: 'warmup';
@@ -167,6 +167,26 @@ export function dropRemainingSets(steps: Step[], fromIndex: number, slot: string
   return normalizeRests(kept);
 }
 
+/** Point the rest-pause finisher's mini-sets at another exercise. */
+export function swapRestPause(steps: Step[], p: Prescription): Step[] {
+  return steps.map((s) =>
+    s.kind === 'work' && s.restPause
+      ? { ...s, id: `rp:${p.key}#${s.restPause.mini}`, slot: p.key, exerciseId: p.exerciseId, name: p.name, notes: p.notes, hint: p.hint }
+      : s,
+  );
+}
+
+/** Slots that belong to an optional block (finisher) of their template. */
+export function isOptionalSlot(slot: string): boolean {
+  const t = getTemplate(templateOfKey(slot));
+  return t.variants.some((v) => v.blocks.some((b) => (b.kind === 'pair' || b.kind === 'rest-pause') && b.optional && b.exercises.some((e) => e.key === slot)));
+}
+
+/** Drop every finisher step after `fromIndex` (skip-finisher mid-session). */
+export function dropOptionalSteps(steps: Step[], fromIndex: number): Step[] {
+  return normalizeRests(steps.filter((s, i) => i <= fromIndex || s.kind !== 'work' || (!s.restPause && !isOptionalSlot(s.slot))));
+}
+
 export function remainingSetsOf(steps: Step[], fromIndex: number, slot: string): number {
   return steps.filter((s, i) => i > fromIndex && s.kind === 'work' && s.slot === slot).length;
 }
@@ -179,18 +199,56 @@ export function nextWorkStep(steps: Step[], fromIndex: number): WorkStep | Inter
   return undefined;
 }
 
-export function estimateDurationSec(steps: Step[]): number {
-  return steps.reduce((sum, s) => {
+/** Program tempo: explosive up, ~2 s down. */
+export const TEMPO_SEC_PER_REP = 3;
+/** Getting into position, chalk, grabbing the bar. */
+export const SET_SETUP_SEC = 15;
+/** Switching legs on a per-side exercise. */
+export const SIDE_SWITCH_SEC = 10;
+/** Walking from one pair / block to the next (bar → dip station → bench). */
+export const BLOCK_TRANSITION_SEC = 45;
+
+/** Time for one work set from the reps it is planned at (target, else the top of the range) and the program tempo. */
+export function estimateWorkSec(step: WorkStep, targetReps?: number): number {
+  const reps = targetReps ?? step.reps.max;
+  const lifting = reps * TEMPO_SEC_PER_REP;
+  return SET_SETUP_SEC + (step.perSide ? lifting * 2 + SIDE_SWITCH_SEC : lifting);
+}
+
+export interface DurationOptions {
+  /** Planned reps per set by slot (the session's suggestions); falls back to the top of the range. */
+  targets?: Record<string, number[]>;
+  /** Observed time for a work step (e.g. the athlete's own set durations today); undefined → estimate. */
+  workSec?: (step: WorkStep) => number | undefined;
+}
+
+/**
+ * Estimated length of a step list: warm-up and rest timers as written, interval phases, and each
+ * work set at its planned reps × tempo plus setup, with a transition every time the block changes.
+ */
+export function estimateDurationSec(steps: Step[], opts: DurationOptions = {}): number {
+  let sum = 0;
+  let block: string | undefined;
+  for (const s of steps) {
     switch (s.kind) {
       case 'warmup':
       case 'rest':
-        return sum + s.durationSec;
+        sum += s.durationSec;
+        break;
       case 'interval':
-        return sum + s.phases.reduce((a, p) => a + p.durationSec, 0);
-      case 'work':
-        return sum + (s.perSide ? 80 : 40);
+        sum += s.phases.reduce((a, p) => a + p.durationSec, 0);
+        break;
+      case 'work': {
+        if (block !== undefined && s.blockTitle !== block) sum += BLOCK_TRANSITION_SEC;
+        block = s.blockTitle;
+        const idx = (s.restPause?.mini ?? s.setNumber) - 1;
+        const target = s.restPause ? undefined : opts.targets?.[s.slot]?.[idx];
+        sum += opts.workSec?.(s) ?? estimateWorkSec(s, target);
+        break;
+      }
     }
-  }, 0);
+  }
+  return sum;
 }
 
 function pick<T, K extends keyof T>(obj: T, ...keys: K[]): Pick<T, K> {

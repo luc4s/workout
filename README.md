@@ -14,17 +14,36 @@ animated technique guides.
   exercise (from your last session plus any suggested increase); adjust it with +/− using your
   weight increment (Settings).
 - **Logging** — reps (per leg for split squats / pistols), added load, RIR, variation.
-  Past sessions can be edited in History.
+  Past sessions can be edited in History, including the variation (for one set or all sets of
+  that exercise in the session).
+- **Variations** — every exercise with options (push-up, pistol / archer squat, row, …) has a
+  *Variation* picker on the setup screen and on the set screen; the choice is remembered. Changing
+  it mid-session resets that exercise's target to the bottom of the range.
 - **Target vs. last time** — every set shows the rep target next to what you did on the same
   set last session, how long ago it was and the load you used, with a strip of last session's
   sets (the one you are on highlighted). The rest screen repeats it for the set coming up.
 - **Progression** — implements the program rules: double progression (+2.5 kg or next
   variation at the top of the range), +1 rep on the weakest set, the pull-up roadmap stages,
   bad-day and deload modes, stall detection, schedule warnings (no back-to-back full sessions,
-  ~48 h between rowing and Session A).
+  ~48 h between rowing and Session A). "Last time" always shows the session the targets were
+  built from; after a roadmap stage change (e.g. 4 × 5 → 3 × 6–8) targets start at the new minimum.
+- **Rest-pause finisher (Session B)** — rows or pike push-ups, switchable on the setup screen
+  and during the session until the first mini-set is logged. The app suggests one (★): the
+  movement that stalled, else the one that ended today's sets with the most reps in reserve,
+  else the one not done last time.
+- **Coach** — a rule-based coach that works offline, and optionally Claude on top (see *Coach*
+  below). On *Today*: which session to do and why, the targets, weights and estimated time of that
+  session, a daily brief. During a session: a note on every rest (set vs target, RIR, rest taken,
+  pace, a cue for the next set) and a bad-day switch when the first sets fall short. After: a
+  review (per-exercise verdicts, work / rest / transition time, volume vs last time, RIR
+  calibration, PRs) with next-time suggestions. Suggestions are accepted with one tap; nothing
+  changes otherwise.
 - **Exercise guides** — setup, execution, cues, common mistakes, regressions/progressions and
-  sources for every movement, with a stick-figure animation and red-highlighted mistake demos.
-- **Data** — stored on the device (IndexedDB). Export / import JSON from Settings.
+  sources for every movement, with a 3D animation (glTF) you can rotate — drag, double-tap to
+  reset, Side / Front / ¾ presets — and red-highlighted mistake demos. Every pose is checked
+  against public-domain reference photos (see *3D animations* below).
+- **Data** — stored on the device (IndexedDB). Export / import JSON from Settings. Updates never
+  break existing data or backups (see `CLAUDE.md`).
 
 ## Development
 
@@ -81,7 +100,8 @@ How the runner holds to that, in `src/screens/runner/runner.css`:
   being sized by their content.
 - The figure (`.work-anim`, `.next-anim`, `.warm-anim`) is `flex: 1` with `min-height`, so it
   takes the leftover height and shrinks first on a small screen rather than pushing the logging
-  panel off the bottom. The `.stage` is height-driven there, width-driven everywhere else.
+  panel off the bottom. There the 3D `.stage3d` just fills that box (the camera adapts to any
+  aspect ratio); elsewhere, and in portrait, the stage is 4:3 and width-driven.
 - Timer rings are capped at `42vh` so the buttons under them stay on screen; the `size` prop of
   `TimerRing` is only the SVG geometry and an upper bound.
 - `@media (max-height: 760px) and (orientation: landscape)` tightens the logging panel. The
@@ -95,14 +115,65 @@ To check a change actually fits, drive a headless Chrome through a session rathe
 the browser at desktop size — `document.querySelector('.runner-body')` should report
 `scrollHeight === clientHeight` on every step at 960 × 600.
 
+## Coach
+
+Two layers. The **rule layer** (`src/logic/coach.ts`) is deterministic, needs no network and is the
+source of truth: `recommendSession` (rotation, week coverage, days since a full session, stalls,
+deload age), `sessionOverview` (targets / weights / time from `prepareSession`), `setFeedback`
+(after every logged set) and `sessionReview` (after the session). The **Claude layer**
+(`src/coach/`) sends the rule layer's verdict plus a compact context pack and asks for judgement in
+a fixed JSON shape (structured outputs). It is advisory: it may propose a `deload`, `bad-day`,
+`drop-sets`, `hold`, `variation`, `load`, `rest`, `skip-finisher` or `switch-session` suggestion;
+each maps to something you could tap yourself (setup toggles, runner actions, settings) and is only
+applied when you accept it (`src/coach/apply.ts`).
+
+Setup: create an API key at platform.claude.com (a dedicated key with a spending limit), paste it
+in Settings → Coach, *Save & test*. The key is stored on the device only — never in backups, and
+kept when a backup is imported. Calls go straight from the browser to the Anthropic API (official
+SDK, loaded on first use). Model: Claude Fable 5.1 (`effort: low` for rest notes, `high` for brief
+and review), falling back once to Claude Opus 5.5 on a rate limit, an overload, a model not enabled
+on the key, or a refusal; the model that answered is shown with every note. Without a key, offline
+or on any error the rule layer alone is shown and logging is never blocked.
+
+What is sent (`src/coach/context.ts`): the date, your settings (body weight, pull-up max, roadmap
+stage, chosen variations and loads, rest scale), the week's coverage, the last 8 completed sessions
+compressed per exercise (variation, load, reps, RIR, duration; 4 sessions for a rest note), the rule
+layer's verdict, today's logged sets, and your session notes for the review. Nothing else. Rough
+cost on Fable 5.1 (thinking tokens are billed as output): ≈ $0.02–0.04 per rest note, ≈ $0.1–0.2
+for a brief or review — about $0.7–1 for a full session; Settings shows the month's usage.
+
 ## Code map
 
 - `src/data/program.ts` — the program encoded from the PDF; `exercises.ts` — technique guides; `rules.ts`
 - `src/logic/` — `steps.ts` (session → steps), `runner.ts` (timer state machine), `progression.ts`,
-  `schedule.ts`, `session.ts` (DB orchestration)
-- `src/anim/` — 2D rig (FK + two-bone IK), clips per exercise, SVG renderer
-- `src/screens/` — UI; `src/screens/runner/` — the in-session views
+  `schedule.ts`, `session.ts` (DB orchestration), `targets.ts` (rep target / load for a step),
+  `coach.ts` (rule-based coach)
+- `src/coach/` — the Claude layer: `client.ts` (SDK call, fallback, usage), `schema.ts` (JSON
+  schemas + guards), `prompts.ts` (system prompt generated from the program), `context.ts` (what is
+  sent), `ask.ts`, `apply.ts` (accepted suggestions → app actions), `store.ts` (key, toggles, usage)
+- `src/anim3d/` — 3D animations: `body.ts` (proportions, bones), `pose.ts` / `rig.ts` (poses,
+  FK + two-bone IK), `scene.ts` (mannequin, props, baking), `exercises/*.ts` (one pose spec per
+  exercise, with its references), `AnimPlayer.tsx` / `stage.ts` (three.js viewer)
+- `src/screens/` — UI; `src/screens/runner/` — the in-session views; `src/screens/coach/` — the
+  coach cards (Today, Summary, Settings)
 - `src/styles/global.css` — design scale and shared components; `src/screens/runner/runner.css`
   — the in-session layout (see *Layout constraint* above)
-- `scripts/render-anims.tsx` — dumps animation frames to SVG for checking poses
-  (`npx vite-node scripts/render-anims.tsx /tmp/frames pullup`)
+- `scripts/build-anims.ts` — writes `public/anims/<id>.glb` and `src/anim3d/REFERENCES.md`
+
+## 3D animations
+
+Each exercise is a pose spec in `src/anim3d/exercises/` — keyframes in world coordinates (hands,
+feet and trunk placed where the reference photos put them, joints solved with IK), captions and
+mistake demos. `npm run anims` bakes them into one `.glb` per exercise (also run automatically
+by `npm run dev` / `npm run build`; the output is not committed). The references used for each
+movement are listed in `src/anim3d/REFERENCES.md`.
+
+Checking a pose:
+
+- `npx vite-node dev/probe.ts <id> [clip] [t…]` prints joint positions, IK contact errors and the
+  lowest body point (floor penetration).
+- `npm run dev`, then open `/dev/anim-check.html?id=<id>&t=<seconds>&view=side` (or `&az=<deg>&el=<deg>`
+  to match a photo's camera angle) — a single rendered frame for side-by-side comparison.
+- `src/anim3d/anim.test.ts` fails if a hand / foot misses its contact by more than 1.2 cm, a body
+  part goes through the floor, an elbow or knee leaves its range, or a limb switches between IK
+  and FK within a clip.

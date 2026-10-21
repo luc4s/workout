@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { getTemplate, PRESCRIPTIONS } from '../data/program';
-import { db, deleteSession, type SetRecord } from '../db/db';
-import { Sheet, Stepper } from '../components/controls';
+import { db, deleteSession, getSettings, saveSettings, type SetRecord } from '../db/db';
+import { Sheet, Stepper, VariationSelect } from '../components/controls';
 import { formatClock } from '../hooks/useNow';
 import { variationOf } from '../logic/progression';
 import { groupSlots } from './Summary';
@@ -107,7 +107,10 @@ export default function SessionDetail() {
 
 function EditSet({ set, onDone }: { set: SetRecord; onDone: () => void }) {
   const [s, setS] = useState(set);
+  const [allSets, setAllSets] = useState(true);
   const perSide = set.repsLeft !== undefined;
+  const p = PRESCRIPTIONS[set.slot];
+  const variationEdited = s.variationId !== set.variationId;
   return (
     <div className="stack">
       <h2>
@@ -125,6 +128,17 @@ function EditSet({ set, onDone }: { set: SetRecord; onDone: () => void }) {
         {set.loadKg !== undefined && <Stepper label="Load" unit="kg" step={0.25} value={s.loadKg ?? 0} onChange={(v) => setS({ ...s, loadKg: v })} />}
         <Stepper label="RIR" value={s.rir ?? 0} max={10} onChange={(v) => setS({ ...s, rir: v })} />
       </div>
+      {p?.variations && (
+        <div className="stack tight">
+          <VariationSelect variations={p.variations} value={s.variationId ?? p.defaultVariation} onChange={(id) => setS({ ...s, variationId: id })} />
+          {variationEdited && (
+            <label className="check">
+              <input type="checkbox" checked={allSets} onChange={(e) => setAllSets(e.target.checked)} />
+              Apply to all sets of this exercise in this session
+            </label>
+          )}
+        </div>
+      )}
       <div className="row">
         <button
           className="btn danger"
@@ -143,7 +157,24 @@ function EditSet({ set, onDone }: { set: SetRecord; onDone: () => void }) {
           className="btn primary"
           onClick={async () => {
             const reps = perSide ? Math.min(s.repsLeft ?? 0, s.repsRight ?? 0) : s.reps;
-            await db.sets.put({ ...s, reps });
+            await db.transaction('rw', db.sets, async () => {
+              await db.sets.put({ ...s, reps });
+              if (variationEdited && allSets) {
+                await db.sets
+                  .where('sessionId')
+                  .equals(set.sessionId)
+                  .filter((x) => x.slot === set.slot)
+                  .modify({ variationId: s.variationId });
+              }
+            });
+            // Relabelling the latest session of an exercise also changes the variation remembered for next time.
+            if (variationEdited && s.variationId) {
+              const latest = (await db.sets.where('slot').equals(set.slot).toArray()).reduce((a, b) => (b.completedAt > a.completedAt ? b : a));
+              if (latest.sessionId === set.sessionId) {
+                const settings = await getSettings();
+                await saveSettings({ variations: { ...settings.variations, [set.slot]: s.variationId } });
+              }
+            }
             onDone();
           }}
         >

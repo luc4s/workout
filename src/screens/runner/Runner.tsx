@@ -13,6 +13,7 @@ import { RestView } from './RestView';
 import { WarmupView } from './WarmupView';
 import { IntervalView } from './IntervalView';
 import { StepList } from './StepList';
+import { useCoachNotes } from './useCoachNotes';
 import './runner.css';
 
 export default function Runner() {
@@ -40,6 +41,7 @@ function RunnerInner({ initial }: { initial: RunnerState }) {
   }, [state]);
 
   const dispatch = useCallback((a: RunnerAction) => rawDispatch(a), []);
+  useCoachNotes(state, dispatch);
 
   const finish = useCallback(
     async (extra?: Parameters<typeof finishSession>[1]) => {

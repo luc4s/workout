@@ -1,4 +1,5 @@
 import { useEffect, type ReactNode } from 'react';
+import type { Variation } from '../data/types';
 import { IconCheck, IconInfo, IconWarn } from './icons';
 
 export function Stepper(props: {
@@ -84,6 +85,23 @@ export function Sheet({ open, onClose, children }: { open: boolean; onClose: () 
         {children}
       </div>
     </div>
+  );
+}
+
+/** Labelled variation picker, so it reads as a choice and not as a title. */
+export function VariationSelect(props: { variations: Variation[]; value: string | undefined; onChange: (id: string) => void; label?: string }) {
+  return (
+    <label className="variation-pick">
+      <span>{props.label ?? 'Variation'}</span>
+      <select className="input" value={props.value} onChange={(e) => props.onChange(e.target.value)}>
+        {props.variations.map((v) => (
+          <option key={v.id} value={v.id}>
+            {v.name}
+            {v.alt ? ' (alternative)' : ''}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 
