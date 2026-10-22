@@ -41,4 +41,13 @@ export const PULLUP_ROADMAP_TEXT = [
 ];
 
 export const ROWING_NOTE =
-  'Legs → hips → arms on every stroke; low back neutral. Keep ~48 h before Session A. If Monday pull-ups dip: move to Saturday or start Session A with dips.';
+  'Four workouts: fat loss 30 (4 × 5 min tempo at 80–85 % HRmax), fat loss 60 (3 × 15 min Z2 at 65–75 %), VO2max 30 (4 × 4 min at 90–95 %), VO2max 60 (4 × 8 min at 87–92 %). Hard ones (tempo, VO2max): one, at most two a week, never the day before Session A — rowing loads the back and grip. The Z2 session costs little recovery: fine on a rest day, even the day before a strength session. Pace targets are approximate; heart rate and RPE decide. HR reaches its target only after ~1:30–2:00 of a hard interval: go by feel, HR confirms. Legs → hips → arms on every stroke; low back neutral; damper 3–5.';
+
+/** Heart-rate zones as % of HRmax, with the matching effort (RPE 1–10). Used app-wide for time in zones. */
+export const ROWING_ZONES = [
+  { id: 'Z1', name: 'Recovery', pct: [0, 64], rpe: '2–3' },
+  { id: 'Z2', name: 'Endurance', pct: [65, 75], rpe: '3–4' },
+  { id: 'Z3', name: 'Tempo', pct: [76, 82], rpe: '5–6' },
+  { id: 'Z4', name: 'Threshold', pct: [83, 89], rpe: '7–8' },
+  { id: 'Z5', name: 'VO2max', pct: [90, 100], rpe: '9' },
+] as const;

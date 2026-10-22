@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { getTemplate } from '../../data/program';
+import { getTemplate, targetMinOf } from '../../data/program';
 import { getRunner, getSettings, saveRunner } from '../../db/db';
 import { Sheet } from '../../components/controls';
 import { IconClose, IconNext, IconPause, IconPlay, IconPrev } from '../../components/icons';
@@ -73,7 +73,8 @@ function RunnerInner({ initial }: { initial: RunnerState }) {
   const step = state.steps[state.index];
   const isLast = state.index === state.steps.length - 1;
   const elapsedMin = sessionElapsedMs(state, now) / 60000;
-  const over = elapsedMin > template.targetMin;
+  const targetMin = targetMinOf(template, state.variantId);
+  const over = elapsedMin > targetMin;
   const paused = state.pausedAt !== undefined;
   const doneCount = Object.keys(state.done).length;
   const workCount = state.steps.filter((s) => s.kind === 'work').length;
@@ -88,7 +89,7 @@ function RunnerInner({ initial }: { initial: RunnerState }) {
           <div className="name">{template.name}</div>
           <div className="meta num">
             <span className={over ? 'over' : ''}>
-              {formatClock(sessionElapsedMs(state, now) / 1000)} / {template.targetMin}:00
+              {formatClock(sessionElapsedMs(state, now) / 1000)} / {targetMin}:00
             </span>
             {workCount > 0 && (
               <span>
@@ -124,7 +125,7 @@ function RunnerInner({ initial }: { initial: RunnerState }) {
       </header>
 
       {over && step.kind !== 'interval' && (
-        <div className="runner-banner">Past {template.targetMin} min — tighten transitions or drop the finisher, never the primary strength work.</div>
+        <div className="runner-banner">Past {targetMin} min — tighten transitions or drop the finisher, never the primary strength work.</div>
       )}
       {paused && (
         <button className="runner-banner paused-banner" onClick={() => dispatch({ type: 'resume', now: Date.now() })}>

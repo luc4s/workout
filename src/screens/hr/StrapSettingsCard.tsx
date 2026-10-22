@@ -1,10 +1,11 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Chips, Note, Stepper, ToggleRow } from '../../components/controls';
 import { db, DEFAULT_SETTINGS, saveSettings, type Settings } from '../../db/db';
 import { isBluetoothSupported, strap } from '../../hr/ble';
 import { estimateHrMax, hrMaxOf } from '../../hr/metrics';
 import { useStrap } from '../../hr/useHeartRate';
+import { fmtPace, parsePace } from '../../logic/rowing';
 
 export function StrapSettingsCard() {
   const s = { ...DEFAULT_SETTINGS, ...((useLiveQuery(() => db.kv.get('settings'), [])?.value as Partial<Settings> | undefined) ?? {}) };
@@ -12,6 +13,9 @@ export function StrapSettingsCard() {
   const supported = isBluetoothSupported();
   const year = new Date().getFullYear();
   const estimate = estimateHrMax(s.birthYear);
+  const [paceText, setPaceText] = useState<string | undefined>(undefined);
+  const paceShown = paceText ?? (s.pace2kSec ? fmtPace(s.pace2kSec) : '');
+  const paceBad = !!paceText && paceText.trim() !== '' && parsePace(paceText) === undefined;
   useEffect(() => {
     if (st.status === 'on' && st.deviceName && st.deviceName !== s.strapName) saveSettings({ strapName: st.deviceName });
   }, [st.status, st.deviceName, s.strapName]);
@@ -78,6 +82,28 @@ export function StrapSettingsCard() {
             onChange={(v) => saveSettings({ sex: v })}
           />
         </div>
+      </div>
+      <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        <label className="stack tight">
+          <span className="section-title">2k pace (/500 m)</span>
+          <input
+            className={`input num${paceBad ? ' bad' : ''}`}
+            placeholder="2:05"
+            inputMode="numeric"
+            value={paceShown}
+            onChange={(e) => setPaceText(e.target.value)}
+            onBlur={() => {
+              if (paceText === undefined) return;
+              const sec = parsePace(paceText);
+              if (paceText.trim() === '') saveSettings({ pace2kSec: undefined });
+              else if (sec !== undefined) saveSettings({ pace2kSec: sec });
+              setPaceText(undefined);
+            }}
+          />
+          <span className="faint" style={{ fontSize: 13 }}>
+            {paceBad ? 'Use m:ss, between 1:00 and 4:00.' : 'Your average split on a 2000 m test. The rowing workouts add seconds to it for their pace targets; leave empty to row by HR and effort only.'}
+          </span>
+        </label>
       </div>
       <ToggleRow
         title="Readiness check before the warm-up"

@@ -79,6 +79,27 @@ describe('recommendSession', () => {
     expect(rowed.warnings[0]).toMatch(/48 h/);
   });
 
+  it('picks the rowing workout: hard ones alternate, the Z2 session when a hard one is unsafe', () => {
+    const base = [session('A', monday), session('micro', monday + 2 * DAY), session('B', monday + 4 * DAY)];
+    // Saturday, nothing hard on record: VO2max first (60 min version on a weekend only once the 30 min ones are routine).
+    const first = recommendSession(base, [], settings, sat);
+    expect(first.templateId).toBe('row');
+    expect(first.variantId).toBe('vo2max-30');
+    // Last hard rowing was VO2max → tempo next; a Saturday after two 30 min rows → the 60 min version.
+    const afterVo2 = [...base, { ...session('row', monday - 2 * DAY), variantId: 'vo2max-30' }, { ...session('row', monday - 9 * DAY), variantId: 'fat-loss-30' }];
+    expect(recommendSession(afterVo2, [], settings, sat).variantId).toBe('fat-loss-60');
+    expect(recommendSession(afterVo2, [], settings, monday + 4 * DAY + 3600_000 * 2).variantId).toBe('fat-loss-30');
+    // Two hard rowing sessions already this week → Z2.
+    const twoHard = [...base, { ...session('row', monday + DAY), variantId: 'vo2max-30' }, { ...session('row', monday + 3 * DAY), variantId: 'fat-loss-30' }];
+    const z2 = recommendSession(twoHard, [], settings, sat);
+    expect(z2.variantId).toBe('fat-loss-60');
+    expect(z2.why.join(' ')).toMatch(/2 hard rowing/);
+    expect(z2.warnings).toEqual([]);
+    // Poor readiness → Z2 as well.
+    const tired = recommendSession(base, [], settings, sat, { readiness: { at: sat - 3600_000, score: 'caution', restingHr: 62, rmssd: 30, lnRmssd: 3.4, reason: 'Resting HR up.' } });
+    expect(tired.variantId).toBe('fat-loss-60');
+  });
+
   it('two stalled lifts and no recent deload → deload week preset', () => {
     const st: Settings = { ...settings, loads: { 'A.dip': 10, 'A.bss': 10 }, variations: { 'A.dip': 'bar' } };
     const sessions: SessionRecord[] = [];

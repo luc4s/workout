@@ -27,7 +27,7 @@ export interface HrSummary {
   avg: number;
   max: number;
   min: number;
-  /** Seconds in zones 1–5 (%HRmax 50–60, 60–70, 70–80, 80–90, 90–100). */
+  /** Seconds in zones 1–5 (see `ZONE_BOUNDS` in `src/hr/metrics.ts`; computed with the bounds in force when the session ended). */
   zonesSec: number[];
   /** Banister TRIMP (HR reserve) when resting HR is known, else Edwards zone TRIMP. */
   trimp?: number;
@@ -88,8 +88,8 @@ export interface SessionRecord {
   endedAt?: number;
   flags: SessionFlags;
   notes?: string;
-  /** Distance / split for rowing sessions. */
-  rowing?: { distanceM?: number; avgSplit?: string };
+  /** Distance / split for rowing sessions; `phaseStartedAt` is when the interval timer started (for per-phase HR). */
+  rowing?: { distanceM?: number; avgSplit?: string; phaseStartedAt?: number };
   coach?: SessionCoachData;
   /** Heart-rate recording, when a strap was connected. */
   hr?: SessionHr;
@@ -145,6 +145,8 @@ export interface Settings {
   hrGuidedRest?: boolean;
   /** Name of the strap last paired, to reconnect without the picker. */
   strapName?: string;
+  /** 2000 m test pace, seconds per 500 m; gives the rowing workouts their pace targets. */
+  pace2kSec?: number;
 }
 
 export const DEFAULT_SETTINGS: Settings = {

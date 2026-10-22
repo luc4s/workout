@@ -5,7 +5,7 @@ import { modelLabel } from '../../coach/client';
 import type { Brief } from '../../coach/schema';
 import { getCachedBrief, localDate, setCachedBrief, useCoachConfig } from '../../coach/store';
 import { Note } from '../../components/controls';
-import { getTemplate, getVariant } from '../../data/program';
+import { getTemplate, getVariant, targetMinOf, visibleVariants } from '../../data/program';
 import type { CoachStored, SessionRecord, SetRecord, Settings } from '../../db/db';
 import { recommendSession, sessionOverview, type HrContext, type SessionOverview } from '../../logic/coach';
 import { weeklyLoad } from '../../hr/metrics';
@@ -34,7 +34,7 @@ export function CoachCard(props: { sessions: SessionRecord[]; sets: SetRecord[];
   }, [sessions]); // eslint-disable-line react-hooks/exhaustive-deps
   const rec = useMemo(() => recommendSession(sessions, sets, settings, now, hrCtx), [sessions, sets, settings, hrCtx]); // eslint-disable-line react-hooks/exhaustive-deps
   const template = getTemplate(rec.templateId);
-  const variantId = rec.variantId ?? template.variants[0].id;
+  const variantId = rec.variantId ?? visibleVariants(template)[0].id;
   const flags = { badDay: false, deload: !!rec.flags.deload, finisher: rec.flags.finisher ?? true };
   const prepKey = `${rec.templateId}:${variantId}:${flags.deload}:${flags.finisher}`;
   const [overview, setOverview] = useState<{ key: string; data: SessionOverview }>();
@@ -124,7 +124,7 @@ export function CoachCard(props: { sessions: SessionRecord[]; sets: SetRecord[];
         </h2>
         <div className="muted">
           {template.subtitle}
-          {ready && template.id !== 'row' ? ` · est. ${ready.estMin} min` : ''}
+          {ready && template.id !== 'row' ? ` · est. ${ready.estMin} min` : template.id === 'row' ? ` · ${targetMinOf(template, variantId)} min` : ''}
           {flags.deload ? ' · deload' : ''}
         </div>
       </div>

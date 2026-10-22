@@ -2,6 +2,8 @@ import { LineChart } from '../../components/charts';
 import type { HrSummary, SessionRecord } from '../../db/db';
 import { compareHr, fmtZones, ZONE_NAMES } from '../../hr/metrics';
 import { ZONE_COLORS } from './HrBadge';
+import { getTemplate, getVariant } from '../../data/program';
+import { hrTargetText, isWorkPhase, phaseHrReport } from '../../logic/rowing';
 
 /** Heart-rate summary of a finished session: chart, tiles, zones, comparison with the previous same-template session. */
 export function SessionHrCard(props: { session: SessionRecord; previous?: HrSummary; usualRecovery?: number }) {
@@ -18,6 +20,11 @@ export function SessionHrCard(props: { session: SessionRecord; previous?: HrSumm
   const cmp = previous ? compareHr(sum, previous) : undefined;
   const sign = (n?: number) => (n === undefined ? '' : `${n >= 0 ? '+' : ''}${n}`);
   const total = sum.zonesSec.reduce((a, b) => a + b, 0) || 1;
+  const block = session.templateId === 'row' ? getVariant(getTemplate('row'), session.variantId).blocks[0] : undefined;
+  const phases = block?.kind === 'interval' ? block.phases : [];
+  // Work intervals, or the steady blocks of the Z2 session.
+  const hasWork = phases.some(isWorkPhase);
+  const report = (phases.length ? phaseHrReport(session, phases) : []).filter((p, i) => p.mean !== undefined && (hasWork ? isWorkPhase(phases[i]) : phases[i].intensity === 'steady'));
 
   return (
     <div className="card stack">
@@ -49,6 +56,19 @@ export function SessionHrCard(props: { session: SessionRecord; previous?: HrSumm
           </span>
         )}
       </div>
+      {report.length > 0 && (
+        <div className="stack tight" style={{ fontSize: 14 }}>
+          <div className="section-title">Heart rate per block (mean, after the HR lag)</div>
+          <div className="row wrap" style={{ gap: 10 }}>
+            {report.map((p) => (
+              <span key={p.label} className={`badge${p.verdict === 'on' ? ' good' : p.verdict ? ' warn' : ''}`} title={`target ${hrTargetText(p.target)} bpm`}>
+                {p.label} · {p.mean} bpm{p.verdict === 'on' ? '' : p.verdict === 'high' ? ' ↑' : ' ↓'}
+              </span>
+            ))}
+          </div>
+          <div className="faint" style={{ fontSize: 13 }}>Green = inside the block's target band ({hrTargetText(report[0].target)} bpm for the first one); arrows show above / below.</div>
+        </div>
+      )}
       {hr.readiness && (
         <div className="muted" style={{ fontSize: 14 }}>
           Readiness check: resting HR {hr.readiness.restingHr}, HRV {hr.readiness.rmssd} ms — {hr.readiness.score === 'go' ? 'on baseline' : hr.readiness.score === 'caution' ? 'a little low' : 'run down'}.

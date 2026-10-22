@@ -9,7 +9,8 @@ backups. Every change must keep that data working with **no migration step**:
   only add **optional** fields. Never rename, remove or change the meaning of an existing one.
 - Identifiers stored in data never change or disappear: slot keys (`A.pullup`, `B.pushup`, …),
   variation ids, `ExerciseId`s, template / variant ids, step ids (`<slot>#<n>`, `rp:<slot>#<n>`).
-  New ones may be added.
+  New ones may be added. A variant that is retired gets `hidden: true` (the old rowing `4x4`,
+  `8x1`, `steady`) and keeps its blocks, so stored sessions and a saved runner still resolve.
 - Dexie schema stays at `version(1)` unless an index is truly needed; if so, add a new version with
   an `upgrade()` and never drop stores.
 - Backup files: keep `version: 1` accepted by `validateBackup` forever. A new format needs a new
@@ -52,6 +53,15 @@ backups. Every change must keep that data working with **no migration step**:
   the `strap` singleton / `recorder`, so tests and headless checks can fake it.
 - HR maths stays in `src/hr/metrics.ts` as pure functions with tests; formulas and their limits are
   documented in the README (*Heart rate*) — keep the UI wording honest about estimates.
+
+## Rowing
+
+- The four workouts in `src/data/program.ts` follow the owner's *seances-rameur* spec to the second;
+  `IntervalPhase` targets (`spm`, `hrPct`, `rpe`, `paceOffset2k`, `hrLagSec`) are optional so the
+  hidden legacy variants and old runners still render. `src/logic/rowing.ts` is the only place that
+  turns them into text / bpm; keep it pure and tested.
+- `ZONE_BOUNDS` in `src/hr/metrics.ts` is the workouts' zone table and is used app-wide; changing it
+  changes new summaries only (stored `zonesSec` are not recomputed).
 
 ## Checks
 

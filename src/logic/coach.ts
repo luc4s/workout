@@ -2,7 +2,7 @@
  * Rule-based coach: deterministic, offline advice before, during and after a session.
  * The Claude layer (src/coach/) reads these verdicts and adds judgement on top; it never replaces them.
  */
-import { getTemplate, PRESCRIPTIONS, templateOfKey } from '../data/program';
+import { getTemplate, getVariant, isHardRowing, PRESCRIPTIONS, targetMinOf, templateOfKey, visibleVariants } from '../data/program';
 import type { Prescription, TemplateId } from '../data/types';
 import type { HrSummary, Readiness, SessionFlags, SessionRecord, SetRecord, Settings } from '../db/db';
 import { applyStage, detectStall, groupBySession, isLoadable, rangeText, scoreOf, variationOf, weeksSince, type SlotSession, type SuggestionKind } from './progression';
@@ -11,6 +11,7 @@ import { isFull, labelOf, ROTATION, sessionsInWeek, suggestNext, warningsFor, we
 import type { Preparation } from './session';
 import { effectiveRir, estimateDurationSec, isOptionalSlot, type WorkStep } from './steps';
 import { targetFor } from './targets';
+import { hrTargetText, isWorkPhase, phaseHrReport } from './rowing';
 
 const DAY = 24 * 3600 * 1000;
 
@@ -122,7 +123,7 @@ export function recommendSession(sessions: SessionRecord[], sets: SetRecord[], s
     why.push(reason);
   }
 
-  const warnings = templateId === base.templateId ? base.warnings : warningsFor(templateId, sessions, now);
+  let warnings = templateId === base.templateId ? base.warnings : warningsFor(templateId, sessions, now);
   const stalls = stallsOf(sets, sessions, settings);
   const templateStalls = stalls.filter((s) => templateOfKey(s.slot) === templateId);
   const firstAt = done.length ? Math.min(...done.map((s) => s.startedAt)) : undefined;
@@ -176,7 +177,33 @@ export function recommendSession(sessions: SessionRecord[], sets: SetRecord[], s
     }
   }
 
-  const variantId = templateId === 'row' && flags.deload ? 'steady' : undefined;
+  // Rowing: which of the four workouts. Hard ones (tempo / VO2max) alternate; the Z2 session covers a deload, a
+  // poor readiness check, a second hard one already done this week, or Session A coming up.
+  let variantId: string | undefined;
+  if (templateId === 'row') {
+    const rows = done.filter((s) => s.templateId === 'row');
+    const hardWarnings = warningsFor('row', sessions, now, 'vo2max-30');
+    const hardThisWeek = week.filter((s) => s.templateId === 'row' && isHardRowing(s.variantId)).length;
+    const lastHard = rows.find((s) => isHardRowing(s.variantId));
+    const longOk = dayIdx >= 5 && rows.length >= 2 && rows.slice(0, 2).every((s) => getTemplate('row').variants.find((v) => v.id === s.variantId)?.targetMin === 30);
+    if (flags.deload || hardWarnings.length || hardThisWeek >= 2 || (fresh && fresh.score !== 'go')) {
+      variantId = 'fat-loss-60';
+      why.push(
+        flags.deload
+          ? 'Deload week — the Z2 rowing session keeps the habit without the recovery cost.'
+          : hardThisWeek >= 2
+            ? `Already ${hardThisWeek} hard rowing sessions this week — the Z2 session is the one left.`
+            : fresh && fresh.score !== 'go'
+              ? 'Readiness is not there for a hard rowing session — Z2 today.'
+              : 'Session A is close — the Z2 session keeps the back and grip fresh for pull-ups.',
+      );
+    } else {
+      const vo2 = !lastHard || !lastHard.variantId.startsWith('vo2max');
+      variantId = vo2 ? (longOk ? 'vo2max-60' : 'vo2max-30') : longOk ? 'fat-loss-60' : 'fat-loss-30';
+      why.push(`${visibleVariants(getTemplate('row')).find((v) => v.id === variantId)?.name ?? variantId}: ${lastHard ? `last hard rowing was ${lastHard.variantId}` : 'no hard rowing on record'}${longOk ? '; weekend and the last ones were 30 min, so the 60 min version' : ''}.`);
+    }
+    warnings = warningsFor('row', sessions, now, variantId);
+  }
   const readiness: SessionRecommendation['readiness'] = todayDone || fresh?.score === 'rest' ? 'rest' : warnings.length || templateStalls.length || fresh?.score === 'caution' ? 'caution' : 'go';
   const confidence: SessionRecommendation['confidence'] = done.length < 3 ? 'low' : why.length || warnings.length ? 'medium' : 'high';
 
@@ -321,6 +348,7 @@ export interface SetHrContext {
 
 export function setFeedback(state: RunnerState, step: WorkStep, record: SetRecord, today: SetRecord[], now: number, hr: SetHrContext = {}): SetFeedback {
   const template = getTemplate(state.templateId);
+  const targetMin = targetMinOf(template, state.variantId);
   const target = targetFor(state, step);
   const reps = record.reps;
   const rir = record.rir;
@@ -399,7 +427,7 @@ export function setFeedback(state: RunnerState, step: WorkStep, record: SetRecor
   const targets = Object.fromEntries(Object.entries(state.suggestions).map(([k, s]) => [k, s.repsTarget]));
   const workSec = (st: WorkStep) => (st.restPause ? undefined : mean(durations.filter((s) => s.slot === st.slot)) ?? sessionMean);
   const projectedMin = elapsedMin + estimateDurationSec(remaining, { targets, workSec }) / 60;
-  const over = remaining.some((s) => s.kind === 'work') && projectedMin > template.targetMin + 2;
+  const over = remaining.some((s) => s.kind === 'work') && projectedMin > targetMin + 2;
   if (over) {
     lines.push({
       priority: 4,
@@ -427,7 +455,7 @@ export function setFeedback(state: RunnerState, step: WorkStep, record: SetRecor
     }
   }
   if (over && !suggestion && state.flags.finisher && state.steps.slice(state.index).some((s) => s.kind === 'work' && (s.restPause || PRESCRIPTIONS[s.slot] && isOptionalSlot(s.slot)))) {
-    suggestion = { kind: 'skip-finisher', reason: `Projected ~${Math.round(projectedMin)} min against a ${template.targetMin} min target — drop the finisher, keep the primary work.` };
+    suggestion = { kind: 'skip-finisher', reason: `Projected ~${Math.round(projectedMin)} min against a ${targetMin} min target — drop the finisher, keep the primary work.` };
   }
 
   const top = lines.sort((a, b) => b.priority - a.priority)[0];
@@ -444,7 +472,7 @@ export function setFeedback(state: RunnerState, step: WorkStep, record: SetRecor
     restAdvice,
     restTakenSec,
     restPlannedSec,
-    pace: { elapsedMin: Math.round(elapsedMin * 10) / 10, projectedMin: Math.round(projectedMin), targetMin: template.targetMin, over },
+    pace: { elapsedMin: Math.round(elapsedMin * 10) / 10, projectedMin: Math.round(projectedMin), targetMin, over },
     badDaySuggested,
     suggestion,
   };
@@ -529,7 +557,8 @@ export function sessionReview(input: ReviewInput): SessionReview {
   const { session, sets, targets, allSets, sessions, settings, nextTime, hr } = input;
   const template = getTemplate(session.templateId);
   const durationMin = ((session.endedAt ?? session.startedAt) - session.startedAt) / 60000;
-  const overtime = durationMin > template.targetMin + 2;
+  const targetMin = targetMinOf(template, session.variantId);
+  const overtime = durationMin > targetMin + 2;
   const previousSets = allSets.filter((s) => s.completedAt < session.startedAt && s.sessionId !== session.id);
   const flags = session.flags;
 
@@ -634,8 +663,8 @@ export function sessionReview(input: ReviewInput): SessionReview {
   if (!flags.badDay && !flags.deload) {
     const deloadStall = stalls.find((s) => s.stall === 'deload');
     if (deloadStall) suggestions.push({ kind: 'deload', reason: `${deloadStall.name} has not progressed in 2 sessions — if recovery is normal, make next week a deload.` });
-    if (durationMin > template.targetMin + 5 && flags.finisher) {
-      suggestions.push({ kind: 'skip-finisher', reason: `${Math.round(durationMin)} min against a ${template.targetMin} min target — skip the finisher next time, never the primary work.` });
+    if (durationMin > targetMin + 5 && flags.finisher) {
+      suggestions.push({ kind: 'skip-finisher', reason: `${Math.round(durationMin)} min against a ${targetMin} min target — skip the finisher next time, never the primary work.` });
     }
     for (const s of slots) {
       if (s.verdict === 'missed' && s.reps.length >= 2) suggestions.push({ kind: 'hold', slot: s.slot, reason: `${s.name}: ${s.note} Repeat the same targets next time rather than adding reps.` });
@@ -658,6 +687,19 @@ export function sessionReview(input: ReviewInput): SessionReview {
       const usual = hr.usualRecovery;
       hrNotes.push(`Recovery after sets: ${hr.summary.recoveryMean} bpm in 60 s${usual !== undefined ? ` (usual ${usual})` : ''}${usual !== undefined && hr.summary.recoveryMean < usual * 0.7 ? ' — slow today; recovery or sleep may be short' : ''}.`);
     }
+    if (session.templateId === 'row') {
+      const block = getVariant(template, session.variantId).blocks[0];
+      const report = block.kind === 'interval' ? phaseHrReport(session, block.phases, settings).filter((p, i) => isWorkPhase(block.phases[i]) && p.mean !== undefined) : [];
+      if (report.length) {
+        const low = report.filter((p) => p.verdict === 'low').length;
+        const high = report.filter((p) => p.verdict === 'high').length;
+        const means = report.map((p) => `${p.label} ${p.mean}`).join(', ');
+        const drift = report.length >= 2 ? report[report.length - 1].mean! - report[0].mean! : 0;
+        hrNotes.push(
+          `Work intervals (mean HR, target ${hrTargetText(report[0].target)} bpm): ${means}${low === report.length ? ' — all below the band: more pressure next time, or the max HR setting is high' : high === report.length ? ' — all above the band: start easier' : low || high ? ` — ${report.length - low - high}/${report.length} in the band` : ' — all in the band'}${drift >= 8 ? '; HR drifted up over the intervals, as expected when the pace holds' : ''}.`,
+        );
+      }
+    }
     if (hr.summary.coverage < 0.8) hrNotes.push(`The strap had readings for ${Math.round(hr.summary.coverage * 100)}% of the session — check contact and battery.`);
     if (session.hr?.readiness) hrNotes.push(`Readiness check: ${session.hr.readiness.reason}`);
   }
@@ -674,7 +716,7 @@ export function sessionReview(input: ReviewInput): SessionReview {
   return {
     headline: parts.join(' · '),
     durationMin: Math.round(durationMin * 10) / 10,
-    targetMin: template.targetMin,
+    targetMin,
     overtime,
     timeUse,
     slots,

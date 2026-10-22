@@ -7,9 +7,15 @@ animated technique guides.
 ## Features
 
 - **Session runner** — steps through warm-up → sets → rests for Session A, Session B, the
-  micro session and rowing HIIT. Count-up set timer, rest countdown (±15 s, skip, pulse +
+  micro session and rowing. Count-up set timer, rest countdown (±15 s, skip, pulse +
   vibration at zero), interval timer for rowing, pause, jump to any step, resume after a reload.
   Screen stays awake (Wake Lock).
+- **Rowing** — four workouts (see *Rowing* below): fat loss 30 (tempo intervals), fat loss 60
+  (Z2 endurance), VO2max 30 (4 × 4) and VO2max 60 (4 × 8). Every phase shows its cadence, HR band
+  (% of max and bpm), RPE and pace target; with a strap the live HR is judged against the band,
+  allowing for the HR lag of hard intervals. The coach picks the workout (hard ones alternate, the
+  Z2 session when a hard one is unsafe) and warns when a hard one lands before Session A or would
+  be the third of the week.
 - **Weight checklist** — before each session, lists the weight to prepare for every weighted
   exercise (from your last session plus any suggested increase); adjust it with +/− using your
   weight increment (Settings).
@@ -26,7 +32,7 @@ animated technique guides.
 - **Progression** — implements the program rules: double progression (+2.5 kg or next
   variation at the top of the range), +1 rep on the weakest set, the pull-up roadmap stages,
   bad-day and deload modes, stall detection, schedule warnings (no back-to-back full sessions,
-  ~48 h between rowing and Session A). "Last time" always shows the session the targets were
+  ~48 h between hard rowing and Session A). "Last time" always shows the session the targets were
   built from; after a roadmap stage change (e.g. 4 × 5 → 3 × 6–8) targets start at the new minimum.
 - **Rest-pause finisher (Session B)** — rows or pike push-ups, switchable on the setup screen
   and during the session until the first mini-set is logged. The app suggests one (★): the
@@ -42,8 +48,8 @@ animated technique guides.
   tap; nothing changes otherwise.
 - **Heart-rate strap** — pair a Polar H10 (or any Bluetooth strap with the standard heart-rate
   service) from Settings; Chrome on Android or desktop only (Web Bluetooth). Live HR in the runner,
-  HR at the end of each set and the drop during the rest, optional HR-guided rest, zone targets for
-  the rowing intervals, a 60 s readiness check before the warm-up (resting HR + HRV against your own
+  HR at the end of each set and the drop during the rest, optional HR-guided rest, the HR band of
+  every rowing phase, a 60 s readiness check before the warm-up (resting HR + HRV against your own
   baseline, with a one-tap bad-day switch), and per session: HR chart, average / max, time in zones,
   training load (TRIMP), an HR-based calorie estimate, mean recovery, all compared with the previous
   session of the same kind. Progress shows resting HR, HRV, weekly load and recovery trends; the
@@ -170,9 +176,11 @@ awake). `src/hr/recorder.ts` stores one sample per second in `SessionRecord.hr` 
 and per-set HR on `SetRecord.hr`.
 
 What the numbers are (`src/hr/metrics.ts`):
-- **Zones**: % of max HR — Z1 50–60, Z2 60–70, Z3 70–80, Z4 80–90, Z5 90–100. Max HR is the value in
-  Settings, else the age estimate (Tanaka, 208 − 0.7 × age); the highest 5 s mean ever seen while
-  wearing the strap replaces the estimate.
+- **Zones**: % of max HR, the rowing workouts' table — Z1 recovery ≤ 64, Z2 endurance 65–75, Z3 tempo
+  76–82, Z4 threshold 83–89, Z5 VO2max ≥ 90 (rounded percentage). Max HR is the value in Settings,
+  else the age estimate (Tanaka, 208 − 0.7 × age); the highest 5 s mean ever seen while wearing the
+  strap replaces the estimate. Sessions summarised before this table was adopted keep the minutes
+  computed with the earlier bounds (Z1 50–60 … Z5 90–100).
 - **Load**: Banister TRIMP (HR reserve weighting) once a resting HR is known, Edwards zone TRIMP
   before that. Weekly load and monotony (mean / SD of daily load) feed the Today card.
 - **Calories**: Keytel 2005 HR formula (needs sex, age, weight). It was fitted on steady cardio, so
@@ -183,12 +191,39 @@ What the numbers are (`src/hr/metrics.ts`):
   in a 60 s seated check, compared with the baseline of your previous checks (needs three). Low HRV
   or a raised resting HR → caution / run down and a bad-day suggestion. Not a medical tool.
 
+## Rowing
+
+`src/data/program.ts` encodes the four workouts of *Séances rameur — Perte de gras & VO2max*
+(ids `fat-loss-30`, `fat-loss-60`, `vo2max-30`, `vo2max-60`), to the second:
+
+| Workout | Length | Main work | HR | Cadence | RPE | Pace (2k split +) |
+|---|---|---|---|---|---|---|
+| Fat loss 30 · tempo | 30 min | 4 × 5 min, 1 min easy between | 80–85 % | 22–24 | 6–7 | +12–18 s |
+| Fat loss 60 · Z2 | 60 min | 3 × 15 min (last 8 min optionally at 76–80 %) | 65–75 % | 20 / 22 / 20 | 4 | +20–30 s |
+| VO2max 30 · 4 × 4 | 30 min | 4 × 4 min, 2 min easy between, after 2 accelerations | 90–95 % | 26–30 | 8–9 | +2–4 s |
+| VO2max 60 · 4 × 8 | 60 min | 4 × 8 min, 2 min easy between, after a tempo climb and 3 accelerations | 87–92 % | 26–28 | 8 | +6–10 s |
+
+Every phase carries `spm`, `hrPct`, `rpe`, `paceOffset2k` and, on hard intervals, `hrLagSec` (HR
+reaches the band only after ~1:30, so the runner greys the HR verdict until then and the summary
+averages each interval after the lag). Pace targets need your 2k split (Settings → *Heart-rate
+strap* → *2k pace*); without it the phase shows the offset only. HR and RPE always override pace.
+
+Scheduling (`src/logic/schedule.ts`, `coach.ts`): tempo and VO2max are *hard* days — one, at most
+two a week, never the day before Session A; the Z2 session is fine on any day. The coach alternates
+VO2max and tempo, offers the 60 min versions on weekends once the 30 min ones are routine, and
+falls back to the Z2 session on a deload, a poor readiness check, after two hard ones in the week
+or when Session A is next. The previous rowing variants (`4x4`, `8x1`, `steady`) are kept hidden so
+old sessions and backups still resolve; they are not offered any more.
+
+References: Helgerud et al. 2007 (4 × 4 at 90–95 % HRmax for VO2max), Seiler et al. 2013
+(4 × 8 ≥ 4 × 4 in recreational athletes).
+
 ## Code map
 
 - `src/data/program.ts` — the program encoded from the PDF; `exercises.ts` — technique guides; `rules.ts`
 - `src/logic/` — `steps.ts` (session → steps), `runner.ts` (timer state machine), `progression.ts`,
   `schedule.ts`, `session.ts` (DB orchestration), `targets.ts` (rep target / load for a step),
-  `coach.ts` (rule-based coach)
+  `coach.ts` (rule-based coach), `rowing.ts` (phase targets, pace, per-phase HR report)
 - `src/hr/` — heart-rate strap: `ble.ts` (Web Bluetooth, 0x2A37 parser), `recorder.ts` (1 Hz recording
   into the session, set recovery, session summary), `metrics.ts` (zones, TRIMP, calories, HRV,
   readiness), `useHeartRate.ts`; `src/screens/hr/` — strap settings, runner badge, rest HR, readiness

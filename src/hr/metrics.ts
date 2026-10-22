@@ -1,8 +1,9 @@
 /** Pure heart-rate maths: zones, training load, calories, HRV, recovery, readiness. */
 import type { HrSummary, Readiness, SessionHr, Settings } from '../db/db';
 
-export const ZONE_BOUNDS = [0.5, 0.6, 0.7, 0.8, 0.9];
-export const ZONE_NAMES = ['Z1 easy', 'Z2 light', 'Z3 moderate', 'Z4 hard', 'Z5 max'];
+/** Lower bound of zones 1–5 as a fraction of HRmax (the rowing workouts' table: Z1 0–64 %, Z2 65–75, Z3 76–82, Z4 83–89, Z5 90–100). */
+export const ZONE_BOUNDS = [0, 0.65, 0.76, 0.83, 0.9];
+export const ZONE_NAMES = ['Z1 recovery', 'Z2 endurance', 'Z3 tempo', 'Z4 threshold', 'Z5 VO2max'];
 
 /** Tanaka et al. 2001: 208 − 0.7 × age. */
 export function estimateHrMax(birthYear: number | undefined, now = Date.now()): number | undefined {
@@ -17,11 +18,12 @@ export function hrMaxOf(settings: Pick<Settings, 'hrMax' | 'birthYear'>, now = D
   return settings.hrMax ?? estimateHrMax(settings.birthYear, now) ?? 185;
 }
 
-/** Zone 1–5 (0 = below zone 1). */
+/** Zone 1–5 (0 only for a non-positive reading). Bounds are inclusive at the lower end, on the rounded percentage. */
 export function zoneOf(bpm: number, hrMax: number): number {
-  const f = bpm / hrMax;
+  if (bpm <= 0) return 0;
+  const pct = Math.round((bpm / hrMax) * 100);
   let z = 0;
-  for (const b of ZONE_BOUNDS) if (f >= b) z++;
+  for (const b of ZONE_BOUNDS) if (pct >= Math.round(b * 100)) z++;
   return z;
 }
 

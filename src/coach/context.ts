@@ -3,7 +3,7 @@
  * built here, so this file documents exactly what leaves the device: dates, settings (no key), the
  * last few sessions compressed per slot, the rule layer's verdict and today's session so far.
  */
-import { getTemplate, PRESCRIPTIONS, PULLUP_ROADMAP, templateOfKey } from '../data/program';
+import { getTemplate, PRESCRIPTIONS, PULLUP_ROADMAP, targetMinOf, templateOfKey } from '../data/program';
 import type { TemplateId } from '../data/types';
 import type { HrSummary, SessionRecord, SetRecord, Settings } from '../db/db';
 import { restTakenBefore, type SessionOverview, type SessionRecommendation, type SessionReview, type SetFeedback, type TrainingStats } from '../logic/coach';
@@ -239,7 +239,7 @@ export function buildRestContext(input: {
       plannedTargets: state.suggestions[feedback.slot]?.repsTarget,
       planMessage: state.suggestions[feedback.slot]?.message,
     },
-    today_session: { t: state.templateId, flags, elapsedMin: Math.round(sessionElapsedMs(state, now) / 6000) / 10, targetMin: template.targetMin, sets: todaySets, upNext, ...(hr ? { hr } : {}) },
+    today_session: { t: state.templateId, flags, elapsedMin: Math.round(sessionElapsedMs(state, now) / 6000) / 10, targetMin: targetMinOf(template, state.variantId), sets: todaySets, upNext, ...(hr ? { hr } : {}) },
   };
 }
 

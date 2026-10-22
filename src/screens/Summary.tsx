@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Link, useParams } from 'react-router-dom';
-import { getTemplate, PRESCRIPTIONS, PULLUP_ROADMAP } from '../data/program';
+import { getTemplate, PRESCRIPTIONS, PULLUP_ROADMAP, targetMinOf } from '../data/program';
 import { db, DEFAULT_SETTINGS, type SetRecord, type Settings } from '../db/db';
 import { sessionReview, usualRecoveryOf } from '../logic/coach';
 import { SessionHrCard } from './hr/SessionHrCard';
@@ -58,6 +58,7 @@ export default function Summary() {
   if (!session || !sets || !sessions || !allSets) return null;
   const prs = review?.prs ?? [];
   const template = getTemplate(session.templateId);
+  const targetMin = targetMinOf(template, session.variantId);
   const duration = ((session.endedAt ?? Date.now()) - session.startedAt) / 1000;
   const bySlot = groupSlots(sets);
   const totalReps = sets.reduce((a, s) => a + (s.repsLeft !== undefined ? (s.repsLeft ?? 0) + (s.repsRight ?? 0) : s.reps), 0);
@@ -79,15 +80,15 @@ export default function Summary() {
       </div>
 
       <div className="grid grid-4">
-        <Stat label="Duration" value={formatClock(duration)} warn={duration / 60 > template.targetMin + 2} />
+        <Stat label="Duration" value={formatClock(duration)} warn={duration / 60 > targetMin + 2} />
         {sets.length > 0 && <Stat label="Sets logged" value={String(sets.length)} />}
         {sets.length > 0 && <Stat label="Total reps" value={String(totalReps)} />}
         {session.rowing?.distanceM && <Stat label="Distance" value={`${session.rowing.distanceM} m`} />}
         {session.rowing?.avgSplit && <Stat label="Avg split" value={session.rowing.avgSplit} />}
       </div>
 
-      {duration / 60 > template.targetMin + 2 && (
-        <Note kind="warn">Session crept past {template.targetMin} min — tighten superset transitions or drop the finisher next time.</Note>
+      {duration / 60 > targetMin + 2 && (
+        <Note kind="warn">Session crept past {targetMin} min — tighten superset transitions or drop the finisher next time.</Note>
       )}
       {prs.map((p) => (
         <Note key={p} kind="good">

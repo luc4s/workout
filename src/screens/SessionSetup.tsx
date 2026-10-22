@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { getTemplate, getVariant, PRESCRIPTIONS, restPauseOptions } from '../data/program';
+import { getTemplate, getVariant, PRESCRIPTIONS, restPauseOptions, targetMinOf, visibleVariants } from '../data/program';
 import type { Prescription, TemplateId } from '../data/types';
-import { db } from '../db/db';
+import { db, type Settings } from '../db/db';
 import { Chips, Note, ToggleRow, VariationSelect } from '../components/controls';
 import { IconCheck } from '../components/icons';
 import { formatClock } from '../hooks/useNow';
@@ -12,6 +12,7 @@ import type { SlotPlan } from '../logic/runner';
 import { warningsFor } from '../logic/schedule';
 import { lastRestPauseSlot, prepareSession, startSession, type Preparation, type SessionOptions } from '../logic/session';
 import { estimateDurationSec } from '../logic/steps';
+import { phaseTargets, spanText } from '../logic/rowing';
 import { getCoachNext, type CoachNext } from '../coach/store';
 
 export default function SessionSetup() {
@@ -20,7 +21,7 @@ export default function SessionSetup() {
   const template = getTemplate(templateId as TemplateId);
   // Presets from the coach: router state (Today → "Set up session" / an accepted suggestion) and the stored `coach:next`.
   const preset = (useLocation().state ?? {}) as { flags?: Partial<CoachNext['flags']>; variantId?: string };
-  const [variantId, setVariantId] = useState(template.variants.find((v) => v.id === preset.variantId)?.id ?? template.variants[0].id);
+  const [variantId, setVariantId] = useState(visibleVariants(template).find((v) => v.id === preset.variantId)?.id ?? visibleVariants(template)[0].id);
   const [finisher, setFinisher] = useState(preset.flags?.finisher ?? true);
   const [badDay, setBadDay] = useState(preset.flags?.badDay ?? false);
   const [deload, setDeload] = useState(preset.flags?.deload ?? false);
@@ -33,7 +34,7 @@ export default function SessionSetup() {
       if (n.flags?.badDay) setBadDay(true);
       if (n.flags?.deload) setDeload(true);
       if (n.flags?.finisher === false) setFinisher(false);
-      if (n.variantId && template.variants.some((v) => v.id === n.variantId)) setVariantId(n.variantId);
+      if (n.variantId && visibleVariants(template).some((v) => v.id === n.variantId)) setVariantId(n.variantId);
       if (n.holds?.length) setHolds(n.holds);
       setPresetNote((cur) => [...new Set([...cur, ...presetLabels(n.flags, n.variantId), ...(n.holds ?? []).map((h) => `hold ${PRESCRIPTIONS[h]?.name ?? h}`)])]);
     });
@@ -96,7 +97,7 @@ export default function SessionSetup() {
   }, [prep]);
 
   const variant = getVariant(template, variantId);
-  const warnings = sessions ? warningsFor(template.id, sessions, Date.now()) : [];
+  const warnings = sessions ? warningsFor(template.id, sessions, Date.now(), variantId) : [];
   const hasFinisher = variant.blocks.some((b) => (b.kind === 'pair' || b.kind === 'rest-pause') && b.optional);
   const isRowing = template.id === 'row';
 
@@ -171,6 +172,7 @@ export default function SessionSetup() {
           <div className="muted">
             {template.subtitle}
             {prep && !isRowing && <> · est. {Math.round(estimateDurationSec(prep.steps, { targets: Object.fromEntries(Object.entries(prep.suggestions).map(([k, s]) => [k, s.repsTarget])) }) / 60)} min</>}
+            {isRowing && <> · {targetMinOf(template, variantId)} min</>}
           </div>
         </div>
       </div>
@@ -229,10 +231,10 @@ export default function SessionSetup() {
               </Note>
             ))}
             {presetNote.length > 0 && <Note kind="info">Coach presets applied: {presetNote.join(', ')}. You can still change anything here.</Note>}
-            {template.variants.length > 1 && (
+            {visibleVariants(template).length > 1 && (
               <>
                 <div className="section-title">Workout</div>
-                <Chips options={template.variants.map((v) => ({ id: v.id, label: v.name }))} value={variantId} onChange={setVariantId} />
+                <Chips options={visibleVariants(template).map((v) => ({ id: v.id, label: v.name }))} value={variantId} onChange={setVariantId} />
                 <div className="muted">{variant.description}</div>
               </>
             )}
@@ -278,7 +280,7 @@ export default function SessionSetup() {
           {!prep ? (
             <div className="empty">Loading…</div>
           ) : isRowing ? (
-            <RowingPlan variantId={variantId} />
+            <RowingPlan variantId={variantId} settings={prep.settings} />
           ) : (
             <div className="list">
               {visible.map((p) => (
@@ -395,31 +397,65 @@ function WeightRow(props: {
   );
 }
 
-function RowingPlan({ variantId }: { variantId: string }) {
+function RowingPlan({ variantId, settings }: { variantId: string; settings: Settings }) {
   const variant = getVariant(getTemplate('row'), variantId);
   const block = variant.blocks[0];
   if (block.kind !== 'interval') return null;
+  const detailed = block.phases.some((p) => p.spm !== undefined || p.hrPct);
+  const cell = (v?: string) => <span className="num muted">{v ?? '—'}</span>;
   return (
     <div className="stack tight">
-      {block.phases.map((ph, i) => (
-        <div key={i} className="row between" style={{ padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
-          <span className="row" style={{ gap: 10 }}>
-            <span
-              style={{
-                width: 12,
-                height: 12,
-                borderRadius: 4,
-                background: ph.intensity === 'hard' ? 'var(--hard)' : ph.intensity === 'easy' ? 'var(--rest)' : 'var(--accent)',
-              }}
-            />
-            {ph.label}
-          </span>
-          <span className="num muted">{formatClock(ph.durationSec)}</span>
+      {detailed && (
+        <div className="row between faint" style={{ padding: '0 0 4px', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+          <span style={{ flex: 2 }}>Block</span>
+          <span style={{ flex: 1 }}>spm</span>
+          <span style={{ flex: 1.4 }}>HR</span>
+          <span style={{ flex: 0.8 }}>RPE</span>
+          <span style={{ flex: 1.6 }}>Pace</span>
+          <span style={{ flex: 0.8, textAlign: 'right' }}>Time</span>
+        </div>
+      )}
+      {block.phases.map((ph, i) => {
+        const t = phaseTargets(ph, settings);
+        return (
+          <div key={i} className="row between" style={{ padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+            <span className="row" style={{ gap: 10, flex: 2 }}>
+              <span
+                style={{
+                  width: 12,
+                  height: 12,
+                  borderRadius: 4,
+                  flex: 'none',
+                  background: ph.intensity === 'hard' ? 'var(--hard)' : ph.intensity === 'easy' ? 'var(--rest)' : 'var(--accent)',
+                }}
+              />
+              {ph.label}
+            </span>
+            {detailed && (
+              <>
+                <span style={{ flex: 1 }}>{cell(spanText(ph.spm))}</span>
+                <span style={{ flex: 1.4 }}>{cell(t.hrPct)}</span>
+                <span style={{ flex: 0.8 }}>{cell(t.rpe)}</span>
+                <span style={{ flex: 1.6 }}>{cell(t.pace)}</span>
+              </>
+            )}
+            <span className="num muted" style={{ flex: 0.8, textAlign: 'right' }}>
+              {formatClock(ph.durationSec)}
+            </span>
+          </div>
+        );
+      })}
+      <div className="faint" style={{ marginTop: 8 }}>
+        Total {formatClock(block.phases.reduce((a, p) => a + p.durationSec, 0))}.{' '}
+        {detailed
+          ? `HR is % of your max (${settings.hrMax ?? 'estimated'} bpm${settings.hrMax ? '' : ' — set it in Settings'}); pace is seconds added to your 2k split${settings.pace2kSec ? '' : ' (set it in Settings to see splits)'}. Heart rate and effort decide — pace is a guide.`
+          : 'Hard = just sustainable for the interval.'}
+      </div>
+      {variant.references?.map((r) => (
+        <div key={r} className="faint" style={{ fontSize: 12 }}>
+          {r}
         </div>
       ))}
-      <div className="faint" style={{ marginTop: 8 }}>
-        Total {formatClock(block.phases.reduce((a, p) => a + p.durationSec, 0))}. Hard = just sustainable for the interval.
-      </div>
     </div>
   );
 }

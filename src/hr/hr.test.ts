@@ -23,11 +23,16 @@ describe('heart rate measurement parser (0x2A37)', () => {
 
 describe('zones, load and calories', () => {
   it('zones from %HRmax', () => {
-    expect(zoneOf(90, 185)).toBe(0);
-    expect(zoneOf(93, 185)).toBe(1);
-    expect(zoneOf(150, 185)).toBe(4);
+    // Rowing zones: Z1 ≤ 64 %, Z2 65–75, Z3 76–82, Z4 83–89, Z5 ≥ 90 (of HRmax 185).
+    expect(zoneOf(0, 185)).toBe(0);
+    expect(zoneOf(90, 185)).toBe(1);
+    expect(zoneOf(118, 185)).toBe(1); // 64 %
+    expect(zoneOf(120, 185)).toBe(2); // 65 %
+    expect(zoneOf(150, 185)).toBe(3); // 81 %
+    expect(zoneOf(160, 185)).toBe(4); // 86 %
+    expect(zoneOf(167, 185)).toBe(5); // 90 %
     expect(zoneOf(185, 185)).toBe(5);
-    expect(timeInZones([100, 100, 150, -1, 185], 185)).toEqual([2, 0, 0, 1, 1]);
+    expect(timeInZones([100, 100, 150, -1, 185], 185)).toEqual([2, 0, 1, 0, 1]);
   });
   it('TRIMP grows with intensity and is 0 at rest', () => {
     const easy = Array.from({ length: 600 }, () => 110);

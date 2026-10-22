@@ -1,11 +1,12 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'vitest';
-import { getTemplate, PRESCRIPTIONS, restPauseOptions } from '../data/program';
+import { getTemplate, isHardRowing, PRESCRIPTIONS, restPauseOptions, targetMinOf, visibleVariants } from '../data/program';
 import { DEFAULT_SETTINGS, db, type SessionRecord, type SetRecord, type Settings } from '../db/db';
 import { exportBackup, importBackup } from '../db/backup';
 import { applyStage, detectStall, suggest, suggestRestPause, type SlotSession } from './progression';
 import { createRunner, intervalPosition, restRemainingSec, runnerReducer, sessionElapsedMs } from './runner';
 import { suggestNext, warningsFor } from './schedule';
+import { isWorkPhase } from './rowing';
 import { lastRestPauseSlot, prepareSession } from './session';
 import { buildSteps, dropRemainingSets, estimateDurationSec, estimateWorkSec, type Step, type WorkStep } from './steps';
 
@@ -59,9 +60,32 @@ describe('buildSteps', () => {
       const [s] = buildSteps(row, v, OPTS);
       return s.kind === 'interval' ? s.phases.reduce((a, p) => a + p.durationSec, 0) / 60 : 0;
     };
+    const phases = (v: string) => {
+      const [s] = buildSteps(row, v, OPTS);
+      return s.kind === 'interval' ? s.phases : [];
+    };
+    // The four workouts of seances-rameur.md, to the second.
+    expect(total('fat-loss-30')).toBe(30);
+    expect(total('fat-loss-60')).toBe(60);
+    expect(total('vo2max-30')).toBe(30);
+    expect(total('vo2max-60')).toBe(60);
+    expect(phases('fat-loss-30').map((p) => p.label)).toEqual(['Warm-up', 'Tempo 1/4', 'Recovery', 'Tempo 2/4', 'Recovery', 'Tempo 3/4', 'Recovery', 'Tempo 4/4', 'Cool-down']);
+    expect(phases('vo2max-30')).toHaveLength(1 + 4 + 7 + 1);
+    expect(phases('vo2max-60')).toHaveLength(2 + 6 + 7 + 1);
+    expect(phases('fat-loss-60')).toHaveLength(6);
+    expect(phases('vo2max-30').filter(isWorkPhase).map((p) => p.hrPct)).toEqual([[90, 95], [90, 95], [90, 95], [90, 95]]);
+    expect(phases('vo2max-60').filter(isWorkPhase).every((p) => p.durationSec === 480 && p.hrLagSec === 90)).toBe(true);
+    // Legacy ids (stored sessions, a saved runner) still resolve; they are hidden from the setup screen.
     expect(total('4x4')).toBe(25);
     expect(total('8x1')).toBe(22);
     expect(total('steady')).toBe(20);
+    expect(visibleVariants(row).map((v) => v.id)).toEqual(['fat-loss-30', 'fat-loss-60', 'vo2max-30', 'vo2max-60']);
+    expect(targetMinOf(row, 'fat-loss-60')).toBe(60);
+    expect(targetMinOf(row, 'steady')).toBe(20);
+    expect(targetMinOf(row, 'nope')).toBe(30);
+    expect(isHardRowing('fat-loss-60')).toBe(false);
+    expect(isHardRowing('vo2max-60')).toBe(true);
+    expect(isHardRowing(undefined)).toBe(true);
   });
 
   it('pull-up roadmap stage changes Session A pull-up sets', () => {
@@ -353,6 +377,22 @@ describe('schedule', () => {
     expect(warningsFor('B', [session('A', monday)], monday + DAY)[0]).toMatch(/back-to-back/);
     expect(warningsFor('B', [session('A', monday)], monday + 3 * DAY)).toEqual([]);
     expect(warningsFor('A', [session('row', monday - DAY)], monday)[0]).toMatch(/48 h/);
+    // Only hard rowing worries Session A; the Z2 session is fine the day before.
+    expect(warningsFor('A', [{ ...session('row', monday - DAY), variantId: 'fat-loss-60' }], monday)).toEqual([]);
+    expect(warningsFor('A', [{ ...session('row', monday - DAY), variantId: 'vo2max-30' }], monday)[0]).toMatch(/Hard rowing/);
+  });
+
+  it('rowing warnings depend on the workout: hard ones before A or twice a week, never the Z2 session', () => {
+    const sunday = monday + 5 * DAY + 12 * 3600_000; // Sunday 06:00: next Monday in 18 h, no A this week
+    expect(warningsFor('row', [], sunday, 'vo2max-30')[0]).toMatch(/Session A is coming up/);
+    expect(warningsFor('row', [], sunday, 'fat-loss-30')[0]).toMatch(/Session A is coming up/);
+    expect(warningsFor('row', [], sunday, 'fat-loss-60')).toEqual([]);
+    const twoHard = [session('A', monday), { ...session('row', monday + DAY), variantId: 'vo2max-30' }, { ...session('row', monday + 3 * DAY), variantId: 'fat-loss-30' }];
+    expect(warningsFor('row', twoHard, monday + 5 * DAY, 'vo2max-60')[0]).toMatch(/Already 2 hard rowing/);
+    expect(warningsFor('row', twoHard, monday + 5 * DAY, 'fat-loss-60')).toEqual([]);
+    const oneHardYesterday = [session('A', monday), { ...session('row', monday + 3 * DAY), variantId: 'vo2max-30' }];
+    expect(warningsFor('row', oneHardYesterday, monday + 4 * DAY, 'fat-loss-30')[0]).toMatch(/less than 48 h ago/);
+    expect(warningsFor('row', oneHardYesterday, monday + 4 * DAY, 'fat-loss-60')).toEqual([]);
   });
 });
 

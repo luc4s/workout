@@ -1,3 +1,4 @@
+import { isHardRowing } from '../data/program';
 import type { TemplateId } from '../data/types';
 import type { SessionRecord } from '../db/db';
 
@@ -24,7 +25,11 @@ function completed(sessions: SessionRecord[]) {
   return sessions.filter((s) => s.endedAt).sort((a, b) => b.startedAt - a.startedAt);
 }
 
-export function warningsFor(templateId: TemplateId, sessions: SessionRecord[], now: number): string[] {
+/**
+ * Scheduling warnings for a session about to start. For rowing, `variantId` decides whether it is a hard day
+ * (tempo / VO2max: at most two a week, not the day before Session A) or the Z2 session, which is fine any day.
+ */
+export function warningsFor(templateId: TemplateId, sessions: SessionRecord[], now: number, variantId?: string): string[] {
   const done = completed(sessions);
   const warnings: string[] = [];
   const today = new Date(now);
@@ -39,15 +44,22 @@ export function warningsFor(templateId: TemplateId, sessions: SessionRecord[], n
   }
   if (templateId === 'A') {
     const lastRow = done.find((s) => s.templateId === 'row');
-    if (lastRow && now - (lastRow.endedAt ?? lastRow.startedAt) < 48 * HOUR) {
-      warnings.push('Rowing was less than 48 h ago — pull-ups may dip. Consider starting with dips.');
+    if (lastRow && isHardRowing(lastRow.variantId) && now - (lastRow.endedAt ?? lastRow.startedAt) < 48 * HOUR) {
+      warnings.push('Hard rowing was less than 48 h ago — pull-ups may dip. Consider starting with dips.');
     }
   }
-  if (templateId === 'row') {
+  if (templateId === 'row' && isHardRowing(variantId)) {
     const lastA = done.find((s) => s.templateId === 'A');
     const nextMonday = weekStart(now) + 7 * DAY;
     if (nextMonday - now < 36 * HOUR && (!lastA || lastA.startedAt < weekStart(now))) {
-      warnings.push('Session A is coming up soon — keep ~48 h between rowing and Session A.');
+      warnings.push('Session A is coming up soon — a hard rowing session loads the back and grip; keep ~48 h, or do the Z2 session.');
+    }
+    const hardThisWeek = done.filter((s) => s.templateId === 'row' && s.startedAt >= weekStart(now) && isHardRowing(s.variantId)).length;
+    if (hardThisWeek >= 2) {
+      warnings.push(`Already ${hardThisWeek} hard rowing sessions this week — two is the limit; make this one the Z2 session.`);
+    } else if (hardThisWeek === 1) {
+      const last = done.find((s) => s.templateId === 'row' && isHardRowing(s.variantId));
+      if (last && now - (last.endedAt ?? last.startedAt) < 48 * HOUR) warnings.push('A hard rowing session less than 48 h ago — the second hard one of the week should wait, or go Z2.');
     }
   }
   return warnings;

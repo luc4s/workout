@@ -7,37 +7,46 @@ import { formatClock } from '../../hooks/useNow';
 import { intervalPosition, stepElapsedMs, type RunnerAction, type RunnerState } from '../../logic/runner';
 import type { IntervalStep } from '../../logic/steps';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, DEFAULT_SETTINGS, type Settings } from '../../db/db';
-import { hrMaxOf } from '../../hr/metrics';
+import { db, DEFAULT_SETTINGS, type SessionRecord, type Settings } from '../../db/db';
 import { useStrap } from '../../hr/useHeartRate';
+import { hrTargetText, hrVerdict, isWorkPhase, phaseTargets, spanText } from '../../logic/rowing';
 
 const COLOR = { hard: 'var(--hard)', easy: 'var(--rest)', steady: 'var(--accent)' } as const;
+const TITLE = { hard: 'Hard — just sustainable', easy: 'Easy — recover', steady: 'Steady — conversational' } as const;
+const KIND_TITLE: Record<string, string> = {
+  warmup: 'Warm-up — build gradually',
+  work: 'Work — hold the pace',
+  accel: 'Acceleration — quick, not all-out',
+  recovery: 'Recovery — light pressure, breathe',
+  steady: 'Endurance — steady and relaxed',
+  cooldown: 'Cool-down — let it drop',
+};
 
 export function IntervalView(props: {
   state: RunnerState;
   step: IntervalStep;
   dispatch: (a: RunnerAction) => void;
   now: number;
-  onFinish: (extra: { notes?: string; rowing?: { distanceM?: number; avgSplit?: string } }) => void;
+  onFinish: (extra: { notes?: string; rowing?: SessionRecord['rowing'] }) => void;
 }) {
   const { state, step, dispatch, now, onFinish } = props;
   const startedKey = `${step.id}:started`;
   const started = !!state.checks[startedKey];
   const pos = intervalPosition(step.phases, started ? stepElapsedMs(state, now) / 1000 : 0);
   const phase = step.phases[pos.phaseIndex];
-  const hardTotal = step.phases.filter((p) => p.intensity === 'hard').length;
-  const hardDone = step.phases.slice(0, pos.phaseIndex + 1).filter((p) => p.intensity === 'hard').length;
+  const workTotal = step.phases.filter(isWorkPhase).length;
+  const workDone = step.phases.slice(0, pos.phaseIndex + 1).filter(isWorkPhase).length;
   const [distance, setDistance] = useState('');
   const [split, setSplit] = useState('');
   const [notes, setNotes] = useState('');
   const lastPhase = useRef(pos.phaseIndex);
   const strapState = useStrap();
   const settings = { ...DEFAULT_SETTINGS, ...((useLiveQuery(() => db.kv.get('settings'), [])?.value as Partial<Settings> | undefined) ?? {}) };
-  const hrMax = hrMaxOf(settings);
-  // Zone targets per phase: hard ≥ 85 % HRmax, steady 70–80 %, easy ≤ 70 %.
-  const target = phase.intensity === 'hard' ? { min: Math.round(hrMax * 0.85) } : phase.intensity === 'steady' ? { min: Math.round(hrMax * 0.7), max: Math.round(hrMax * 0.8) } : { max: Math.round(hrMax * 0.7) };
+  const targets = phaseTargets(phase, settings);
   const bpm = strapState.status === 'on' ? strapState.bpm : undefined;
-  const onTarget = bpm === undefined ? undefined : (target.min === undefined || bpm >= target.min) && (target.max === undefined || bpm <= target.max);
+  const phaseElapsed = phase.durationSec - pos.phaseRemainingSec;
+  const verdict = bpm === undefined ? undefined : hrVerdict(bpm, targets.hrBpm, phaseElapsed, targets.lagSec);
+  const lagging = targets.lagSec !== undefined && phaseElapsed < targets.lagSec;
 
   useEffect(() => {
     if (started && pos.phaseIndex !== lastPhase.current) {
@@ -51,7 +60,11 @@ export function IntervalView(props: {
       <div className="rest-grid">
         <section className="rest-timer">
           <h1 className="work-name">{step.title}</h1>
-          <div className="muted">Total {formatClock(step.phases.reduce((a, p) => a + p.durationSec, 0))}</div>
+          <div className="muted">
+            Total {formatClock(step.phases.reduce((a, p) => a + p.durationSec, 0))}
+            {workTotal > 0 ? ` · ${workTotal} work intervals` : ''}
+            {!settings.pace2kSec && step.phases.some((p) => p.paceOffset2k) ? ' · set your 2k pace in Settings for split targets' : ''}
+          </div>
           <div className="next-anim" style={{ width: '100%' }}>
             <AnimPlayer exerciseId={step.exerciseId} />
           </div>
@@ -86,11 +99,16 @@ export function IntervalView(props: {
           </label>
           <label className="stack tight">
             <span className="section-title">Notes</span>
-            <textarea className="input" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="How did the hard intervals feel?" />
+            <textarea className="input" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="How did the work intervals feel?" />
           </label>
           <button
             className="btn good huge block"
-            onClick={() => onFinish({ notes: notes || undefined, rowing: { distanceM: distance ? Number(distance) : undefined, avgSplit: split || undefined } })}
+            onClick={() =>
+              onFinish({
+                notes: notes || undefined,
+                rowing: { distanceM: distance ? Number(distance) : undefined, avgSplit: split || undefined, phaseStartedAt: state.stepStartedAt },
+              })
+            }
           >
             Finish session
           </button>
@@ -101,6 +119,7 @@ export function IntervalView(props: {
   }
 
   const next = step.phases[pos.phaseIndex + 1];
+  const hrColor = verdict === 'on' ? 'var(--good-ink)' : verdict === 'lag' ? 'var(--text-2)' : 'var(--warn)';
   return (
     <div className={`rest-grid interval-${phase.intensity}`}>
       <section className="rest-timer">
@@ -113,34 +132,50 @@ export function IntervalView(props: {
             <div className="muted num">{formatClock(Math.ceil(pos.totalRemainingSec))} left in session</div>
           </div>
         </TimerRing>
-        {hardTotal > 0 && (
+        {workTotal > 0 && (
           <div className="muted">
-            Hard interval {Math.max(hardDone, 0)} of {hardTotal}
+            Work interval {Math.max(workDone, 0)} of {workTotal}
           </div>
         )}
         {bpm !== undefined && (
           <div className="rest-hr num">
-            <span style={{ color: onTarget ? 'var(--good-ink)' : 'var(--warn)', fontWeight: 800 }}>♥ {bpm}</span>
-            <span className="muted">
-              {' '}
-              · target {target.min !== undefined && target.max !== undefined ? `${target.min}–${target.max}` : target.min !== undefined ? `≥ ${target.min}` : `≤ ${target.max}`} bpm
-            </span>
+            <span style={{ color: hrColor, fontWeight: 800 }}>♥ {bpm}</span>
+            <span className="muted"> · target {hrTargetText(targets.hrBpm)} bpm</span>
+            {verdict === 'lag' && <span className="faint"> · HR still climbing — go by feel</span>}
+            {verdict === 'high' && <span className="faint"> · above the band — ease off</span>}
+            {verdict === 'low' && <span className="faint"> · below the band</span>}
           </div>
         )}
         {next && (
           <div className="faint">
             Next: {next.label} · {formatClock(next.durationSec)}
+            {next.spm ? ` · ${spanText(next.spm)} spm` : ''}
           </div>
         )}
       </section>
       <section className="stack">
         <div className="card stack tight">
-          <div className="section-title">{phase.intensity === 'hard' ? 'Hard — just sustainable' : phase.intensity === 'steady' ? 'Conversational pace' : 'Easy — recover'}</div>
+          <div className="section-title">{(phase.kind && KIND_TITLE[phase.kind]) ?? TITLE[phase.intensity]}</div>
+          {(targets.spm || targets.hrPct || targets.rpe || targets.pace) && (
+            <div className="target-grid">
+              <Target label="Cadence" value={targets.spm} unit="spm" />
+              <Target label="Heart rate" value={targets.hrPct} unit={`${hrTargetText(targets.hrBpm)} bpm`} />
+              <Target label="Effort" value={targets.rpe} unit="RPE / 10" />
+              <Target label="Pace" value={targets.paceSplit ?? targets.paceOffset} unit={targets.paceSplit ? `${targets.paceOffset} vs 2k` : 'vs 2k split'} />
+            </div>
+          )}
+          {(targets.hint || lagging) && (
+            <div className="coach" style={{ fontSize: 14 }}>
+              {targets.hint ?? ''}
+              {targets.hint && lagging ? ' ' : ''}
+              {lagging ? `HR reaches its target only after ~${formatClock(targets.lagSec!)} — row by feel, HR confirms.` : ''}
+            </div>
+          )}
           <div className="next-anim">
             <AnimPlayer exerciseId="rowing-stroke" />
           </div>
           <div className="cue-row">
-            {EXERCISES['rowing-stroke'].cues.slice(0, 3).map((c) => (
+            {EXERCISES['rowing-stroke'].cues.slice(0, 2).map((c) => (
               <span key={c} className="badge accent">
                 {c}
               </span>
@@ -153,6 +188,16 @@ export function IntervalView(props: {
   );
 }
 
+function Target({ label, value, unit }: { label: string; value?: string; unit: string }) {
+  return (
+    <div className="target">
+      <span className="k">{label}</span>
+      <b className="num">{value ?? '—'}</b>
+      <span className="u">{value ? unit : 'free'}</span>
+    </div>
+  );
+}
+
 function PhaseList({ step, current }: { step: IntervalStep; current: number }) {
   return (
     <div className="card phase-list">
@@ -160,6 +205,8 @@ function PhaseList({ step, current }: { step: IntervalStep; current: number }) {
         <div key={i} className={`phase-item${i === current ? ' current' : ''}${i < current ? ' past' : ''}`}>
           <span className="dot" style={{ background: COLOR[p.intensity] }} />
           <span style={{ flex: 1 }}>{p.label}</span>
+          {p.spm !== undefined && <span className="faint num">{spanText(p.spm)} spm</span>}
+          {p.hrPct && <span className="faint num">{p.hrPct[0] > 0 ? `${p.hrPct[0]}–${p.hrPct[1]}` : `≤ ${p.hrPct[1]}`} %</span>}
           <span className="num">{formatClock(p.durationSec)}</span>
         </div>
       ))}
