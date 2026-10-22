@@ -95,12 +95,27 @@ function Live(props: { exerciseId: ExerciseId; faultId?: string; controls?: bool
     };
   }, [exerciseId]);
 
-  // One renderer per live view, torn down on unmount (browsers cap WebGL contexts).
+  // One renderer per live view for its whole life (browsers cap WebGL contexts, and a canvas whose
+  // context was force-lost cannot host a new renderer — switching animations re-uses this one).
+  const rendererRef = useRef<ReturnType<typeof makeRenderer>>();
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const renderer = makeRenderer(canvas);
+    rendererRef.current = renderer;
+    return () => {
+      rendererRef.current = undefined;
+      renderer.dispose();
+      renderer.forceContextLoss();
+    };
+  }, []);
+
+  // A stage per loaded animation, drawn by the shared renderer.
   useEffect(() => {
     const el = stageRef.current;
     const canvas = canvasRef.current;
-    if (!anim || !el || !canvas) return;
-    const renderer = makeRenderer(canvas);
+    const renderer = rendererRef.current;
+    if (!anim || !el || !canvas || !renderer) return;
     const stage = new ExerciseStage(anim, cssPalette(el));
     const orbit = makeControls(stage, canvas);
     let isPlaying = true;
@@ -168,8 +183,6 @@ function Live(props: { exerciseId: ExerciseId; faultId?: string; controls?: bool
       canvas.removeEventListener('dblclick', reset);
       orbit.dispose();
       stage.dispose();
-      renderer.dispose();
-      renderer.forceContextLoss();
       engine.current = undefined;
     };
   }, [anim]);

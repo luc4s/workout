@@ -13,7 +13,8 @@ animated technique guides.
 - **Weight checklist** — before each session, lists the weight to prepare for every weighted
   exercise (from your last session plus any suggested increase); adjust it with +/− using your
   weight increment (Settings).
-- **Logging** — reps (per leg for split squats / pistols), added load, RIR, variation.
+- **Logging** — reps (per leg for split squats / pistols), added load, RIR (a required tap: no
+  default, so the number is yours), variation.
   Past sessions can be edited in History, including the variation (for one set or all sets of
   that exercise in the session).
 - **Variations** — every exercise with options (push-up, pistol / archer squat, row, …) has a
@@ -143,7 +144,10 @@ stage, chosen variations and loads, rest scale), the week's coverage, the last 8
 compressed per exercise (variation, load, reps, RIR, duration; 4 sessions for a rest note), the rule
 layer's verdict, today's logged sets, and your session notes for the review. The training analysis
 (Today → *Ask Claude to analyse my training*, never automatic) sends every completed session (up to
-60) plus `trainingStats` (score timeline per exercise, sessions per week, adherence, RIR habits).
+150) in full — every set with reps (left / right), RIR, load, variation, the target it was run
+against, set and rest seconds, clock time, plus session notes, rowing data and the stored review —
+and `trainingStats` (score timeline, weekly volume, PRs, set / rest timing and RIR histogram per
+exercise; sessions per week, adherence, start-hour and weekday distribution, time use).
 Nothing else. Rough cost on Fable 5.1 (thinking tokens are billed as output): ≈ $0.02–0.04 per rest
 note, ≈ $0.1–0.2 for a brief or review — about $0.7–1 for a full session — and ≈ $0.2–0.4 for an
 analysis; Settings shows the month's usage.

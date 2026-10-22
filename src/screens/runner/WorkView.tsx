@@ -23,7 +23,8 @@ interface Form {
   left: number;
   right: number;
   loadKg: number;
-  rir: number;
+  /** Reps in reserve must be tapped before a set can be logged (rest-pause mini-sets are 0 by definition). */
+  rir?: number;
 }
 
 export function WorkView(props: {
@@ -60,7 +61,7 @@ export function WorkView(props: {
     left: defaultReps,
     right: defaultReps,
     loadKg: plan.loadKg ?? 0,
-    rir: step.rir.min,
+    rir: step.restPause ? 0 : undefined,
   });
 
   // When revisiting a logged set, show what was saved.
@@ -73,16 +74,18 @@ export function WorkView(props: {
         left: r.repsLeft ?? r.reps,
         right: r.repsRight ?? r.reps,
         loadKg: r.loadKg ?? 0,
-        rir: r.rir ?? step.rir.min,
+        rir: r.rir,
       });
     });
-  }, [done, state.sessionId, step.id, step.rir.min]);
+  }, [done, state.sessionId, step.id]);
 
   const elapsed = stepElapsedMs(state, now) / 1000;
   const reps = step.perSide ? Math.min(form.left, form.right) : form.reps;
   const lastReps = last?.reps[idx];
 
+  const canSubmit = form.rir !== undefined && !saving;
   const submit = async () => {
+    if (form.rir === undefined) return;
     setSaving(true);
     await logSet(state, step, {
       reps,
@@ -216,7 +219,7 @@ export function WorkView(props: {
 
         <div className="stack tight">
           <div className="stepper">
-            <div className="label">Reps in reserve</div>
+            <div className="label">Reps in reserve{form.rir === undefined ? ' — tap one' : ''}</div>
           </div>
           <div className="rir-row">
             {[0, 1, 2, 3, 4].map((n) => (
@@ -233,7 +236,7 @@ export function WorkView(props: {
           </div>
         </div>
 
-        <button className="btn good huge block" onClick={submit} disabled={saving}>
+        <button className="btn good huge block" onClick={submit} disabled={!canSubmit} title={form.rir === undefined ? 'Tap your reps in reserve first' : undefined}>
           <IconCheck width={30} height={30} /> {done ? (isLast ? 'Update & finish' : 'Update set') : isLast ? 'Done — finish' : 'Done set'}
         </button>
 

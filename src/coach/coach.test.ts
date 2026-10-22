@@ -261,11 +261,12 @@ describe('context and prompt', () => {
     const s: SessionRecord = { id: i + 1, templateId: i % 2 ? 'B' : 'A', variantId: 'standard', startedAt: monday - (10 - i) * 3 * DAY, endedAt: monday - (10 - i) * 3 * DAY + 50 * 60_000, flags: { badDay: false, deload: false, finisher: true } };
     sessions.push(s);
     const slots = Object.values(PRESCRIPTIONS).filter((p) => p.key.startsWith(`${s.templateId}.`) && !p.key.includes('.rp-'));
-    for (const p of slots) {
+    slots.forEach((p, si) => {
       for (let n = 1; n <= 3; n++) {
-        sets.push({ id: `${s.id}:${p.key}#${n}`, sessionId: s.id!, templateId: s.templateId, slot: p.key, exerciseId: p.exerciseId, setNumber: n, reps: 7, rir: 1, durationSec: 30, completedAt: s.startedAt + n * 120_000, variationId: p.defaultVariation, loadKg: p.loadable ? 10 : undefined });
+        // Sets 2 min apart, slots one after another, 30 s of work each → 90 s of rest between sets.
+        sets.push({ id: `${s.id}:${p.key}#${n}`, sessionId: s.id!, templateId: s.templateId, slot: p.key, exerciseId: p.exerciseId, setNumber: n, reps: 7, rir: 1, durationSec: 30, completedAt: s.startedAt + (si * 3 + n) * 120_000, variationId: p.defaultVariation, loadKg: p.loadable ? 10 : undefined });
       }
-    }
+    });
   }
 
   it('the brief context stays small and carries the rule verdict', () => {
@@ -292,9 +293,17 @@ describe('context and prompt', () => {
   it('the analysis context carries the whole history and the stats, within bounds', async () => {
     const stats = trainingStats(sessions, sets, DEFAULT_SETTINGS, monday);
     const ctx = buildAnalysisContext({ stats, sessions, sets, settings: DEFAULT_SETTINGS, now: monday });
-    expect(ctx.recent).toHaveLength(10);
-    expect((ctx.rules as { slots: unknown[] }).slots.length).toBeGreaterThan(5);
-    expect(JSON.stringify(ctx).length).toBeLessThan(40_000);
+    expect(ctx.history).toHaveLength(10);
+    const first = ctx.history[0];
+    expect(first.sets.length).toBeGreaterThan(10);
+    expect(first.sets[0]).toMatchObject({ n: 1, reps: 7, rir: 1, setSec: 30 });
+    expect(first.sets[1].restSec).toBe(90);
+    expect(first.sets[0].at).toMatch(/^\d\d:\d\d$/);
+    expect(first.min).toBe(50);
+    expect((ctx.rules as { slots: { weeklyVolumeLast12: number[]; prs: unknown[] }[] }).slots[0].weeklyVolumeLast12).toHaveLength(12);
+    expect((ctx.rules as { startHourHistogram: number[] }).startHourHistogram).toHaveLength(24);
+    expect(JSON.stringify(ctx).length).toBeLessThan(60_000);
+    expect(JSON.stringify(ctx).length).toBeGreaterThan(10_000);
     const answer = { headline: 'H', summary: 'S', trends: [], strengths: [], concerns: [], recommendations: ['Do more'], suggestions: [] };
     const f = fakeFetch([() => reply(200, message(JSON.stringify(answer)))]);
     const r = await askAnalysis({ stats, sessions, sets, settings: DEFAULT_SETTINGS, now: monday }, deps(f.fn));

@@ -375,7 +375,8 @@ describe('trainingStats', () => {
     const s = session('A', monday - w * 7 * DAY);
     sessions.push(s);
     const r = 6 + (4 - w) * 0.7;
-    sets.push(...setsOf(s, 'A.dip', [Math.round(r), Math.round(r), Math.round(r)], { loadKg: 10, variationId: 'bar' }), ...setsOf(s, 'A.pullup', [4, 4, 3, 3], { rir: 0 }));
+    // Pull-ups at 6, 8, 10, 12 min and dips at 7, 9, 11 min: 60 s apart, 30 s of work → 30 s of rest before each set.
+    sets.push(...setsOf(s, 'A.dip', [Math.round(r), Math.round(r), Math.round(r)], { loadKg: 10, variationId: 'bar' }, 7), ...setsOf(s, 'A.pullup', [4, 4, 3, 3], { rir: 0 }));
   }
   const st = trainingStats(sessions, sets, settings, monday);
 
@@ -400,5 +401,17 @@ describe('trainingStats', () => {
     expect(pull.trend).toBe('flat');
     expect(pull.stall).toBeDefined();
     expect(st.slots.some((s) => s.slot === 'B.pushup')).toBe(false);
+    // Volume, PRs, set / rest timing and distributions
+    expect(dip.weeklyVolume).toHaveLength(12);
+    expect(dip.weeklyVolume.reduce((a, b) => a + b, 0)).toBe(dip.timeline.reduce((a, t) => a + t.meanReps * 3, 0));
+    expect(dip.prs.map((p) => p.reps)).toEqual([6, 7, 8]);
+    expect(dip.meanSetSec).toBe(30);
+    expect(dip.meanRestSec).toBe(30);
+    expect(dip.rirHistogram).toEqual([0, 12, 0, 0, 0]);
+    expect(pull.rirHistogram[0]).toBe(16);
+    expect(st.weekdayHistogram[0]).toBe(4); // all on a Monday
+    expect(st.hourHistogram[18]).toBe(4);
+    expect(st.longestGapDays).toBe(7);
+    expect(st.timeUse?.workSec).toBe(7 * 30);
   });
 });

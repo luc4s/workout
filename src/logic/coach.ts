@@ -633,6 +633,14 @@ export interface SlotStats {
   /** Score per normal session, oldest first (for the model to read the curve). */
   timeline: { d: number; score: number; meanReps: number; kg?: number; v?: string }[];
   stall?: 'deload' | 'add-set';
+  /** Reps × sets per week over the last 12 weeks, oldest first. */
+  weeklyVolume: number[];
+  meanSetSec?: number;
+  meanRestSec?: number;
+  /** Count of sets by RIR value (index = RIR, 0–4). */
+  rirHistogram: number[];
+  /** Rep PRs in order: the first time each new best was set. */
+  prs: { d: number; reps: number; kg?: number; v?: string }[];
 }
 
 export interface TrainingStats {
@@ -649,6 +657,14 @@ export interface TrainingStats {
   rir: { sets: number; atFailure: number; leftAtDefault: number };
   slots: SlotStats[];
   stalls: StallHint[];
+  /** Sessions started per local hour of day (24 buckets). */
+  hourHistogram: number[];
+  /** Sessions by weekday, Monday first. */
+  weekdayHistogram: number[];
+  /** Longest gap between two completed sessions, in days. */
+  longestGapDays?: number;
+  /** Mean work / rest / other seconds per completed full session (A / B). */
+  timeUse?: { workSec: number; restSec: number; otherSec: number };
 }
 
 export function trainingStats(sessions: SessionRecord[], sets: SetRecord[], settings: Settings, now: number): TrainingStats {
@@ -707,6 +723,24 @@ export function trainingStats(sessions: SessionRecord[], sets: SetRecord[], sett
     const first = summary(basis[0]);
     const latest = summary(basis[basis.length - 1]);
     const trend: SlotStats['trend'] = latest.score > first.score + 0.3 ? 'up' : latest.score < first.score - 0.3 ? 'down' : 'flat';
+    const own = sets.filter((x) => x.slot === slot);
+    const weeklyVolume: number[] = [];
+    for (let w = 11; w >= 0; w--) {
+      const start = ws - w * 7 * DAY;
+      weeklyVolume.push(own.filter((x) => x.completedAt >= start && x.completedAt < start + 7 * DAY).reduce((a, x) => a + repsDone(x), 0));
+    }
+    const durations = own.map((x) => x.durationSec).filter((v): v is number => !!v && v > 0);
+    const rests = own.map((x) => restTakenBefore(x, sets.filter((y) => y.sessionId === x.sessionId))?.sec).filter((v): v is number => v !== undefined);
+    const rirHistogram = [0, 0, 0, 0, 0];
+    for (const x of own) if (x.rir !== undefined) rirHistogram[Math.max(0, Math.min(4, x.rir))]++;
+    const prs: SlotStats['prs'] = [];
+    let best = 0;
+    for (const x of [...own].sort((a, b) => a.completedAt - b.completedAt)) {
+      if (x.reps > best) {
+        best = x.reps;
+        prs.push({ d: x.completedAt, reps: x.reps, kg: x.loadKg || undefined, v: x.variationId });
+      }
+    }
     slots.push({
       slot,
       name: p.name,
@@ -719,7 +753,43 @@ export function trainingStats(sessions: SessionRecord[], sets: SetRecord[], sett
       trend,
       timeline: basis.map((h) => ({ d: h.at, score: summary(h).score, meanReps: summary(h).meanReps, kg: h.sets[0]?.loadKg || undefined, v: h.sets[0]?.variationId })),
       stall: detectStall(p, [...normal].reverse().slice(0, 6)),
+      weeklyVolume,
+      meanSetSec: durations.length ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : undefined,
+      meanRestSec: rests.length ? Math.round(rests.reduce((a, b) => a + b, 0) / rests.length) : undefined,
+      rirHistogram,
+      prs,
     });
+  }
+
+  const hourHistogram = Array.from({ length: 24 }, () => 0);
+  const weekdayHistogram = Array.from({ length: 7 }, () => 0);
+  let longestGapDays: number | undefined;
+  for (let i = 0; i < done.length; i++) {
+    const d = new Date(done[i].startedAt);
+    hourHistogram[d.getHours()]++;
+    weekdayHistogram[(d.getDay() + 6) % 7]++;
+    if (i > 0) {
+      const gap = Math.round((done[i].startedAt - done[i - 1].startedAt) / DAY);
+      if (longestGapDays === undefined || gap > longestGapDays) longestGapDays = gap;
+    }
+  }
+  const full = done.filter((s) => isFull(s.templateId));
+  let timeUse: TrainingStats['timeUse'];
+  if (full.length) {
+    const acc = { workSec: 0, restSec: 0, otherSec: 0 };
+    for (const s of full) {
+      const own = sets.filter((x) => x.sessionId === s.id).sort((a, b) => a.completedAt - b.completedAt);
+      const work = own.reduce((a, x) => a + (x.durationSec ?? 0), 0);
+      let rest = 0;
+      for (let i = 1; i < own.length; i++) {
+        const gap = (own[i].completedAt - (own[i].durationSec ?? 0) * 1000 - own[i - 1].completedAt) / 1000;
+        if (gap > 0 && gap <= 600) rest += gap;
+      }
+      acc.workSec += work;
+      acc.restSec += rest;
+      acc.otherSec += Math.max(0, (s.endedAt! - s.startedAt) / 1000 - work - rest);
+    }
+    timeUse = { workSec: Math.round(acc.workSec / full.length), restSec: Math.round(acc.restSec / full.length), otherSec: Math.round(acc.otherSec / full.length) };
   }
 
   return {
@@ -734,5 +804,9 @@ export function trainingStats(sessions: SessionRecord[], sets: SetRecord[], sett
     rir,
     slots,
     stalls: stallsOf(sets, sessions, settings),
+    hourHistogram,
+    weekdayHistogram,
+    longestGapDays,
+    timeUse,
   };
 }

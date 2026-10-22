@@ -163,13 +163,26 @@ export const archerPushup: ExerciseAnimSpec = {
  * path), elbows track back. Positions follow the Liftosaur description and the program notes.
  */
 const PK_HX = 0.25;
-const PK_FEET = -0.86;
+/** Feet about a metre behind the hands: an inverted V with the torso ~50° and the legs ~55° to the floor. */
+const PK_FEET = -1.0;
 const pkHands = { L: hand(PK_HX, 0, PALM_Y, [0.6, 0.6, -0.9]), R: hand(-PK_HX, 0, PALM_Y, [-0.6, 0.6, -0.9]) };
-const pkLegs = both<LegSpec>({ ik: { target: [0.1, ANKLE_Y - 0.02, PK_FEET], pole: [0.1, 1.2, PK_FEET + 0.3] }, foot: { heading: 0, pitch: -45 } });
-const pike = (hip: V3, shoulder: V3, extra: Partial<Pose> = {}): Pose => ({ root: trunk(hip, shoulder), head: { flex: -25 }, arm: pkHands, leg: pkLegs, ...extra });
-const pkTop = () => pike([0, 0.92, -0.73], [0, 0.524, -0.404]);
-const pkBottom = () => pike([0, 0.81, -0.44], [0, 0.42, -0.12], { thorax: { flex: 10 }, head: { flex: -35 } });
-const pkDrop = (low: boolean) => pike(low ? [0, 0.34, -0.42] : [0, 0.53, -0.5], low ? [0, 0.26, 0.09] : [0, 0.59, -0.04], { head: { flex: 5 } });
+const pkLegs = (z: number) => both<LegSpec>({ ik: { target: [0.1, ANKLE_Y - 0.02, z], pole: [0.1, 1.2, z + 0.35] }, foot: { heading: 0, pitch: -45 } });
+const pike = (hip: V3, shoulder: V3, extra: Partial<Pose> = {}, feetZ = PK_FEET): Pose => ({
+  root: trunk(hip, shoulder),
+  head: { flex: -25 },
+  arm: pkHands,
+  leg: pkLegs(feetZ),
+  ...extra,
+});
+/** Top: arms straight over the hands, hips the highest point, spine straight. */
+const pkTop = () => pike([0, 0.88, -0.55], [0, 0.55, -0.15]);
+/**
+ * Bottom: elbows bend back, the head comes down just in front of the hands; the hips drop a little
+ * and shift forward, the knees give ~30° — the spine stays straight (no arch).
+ */
+const pkBottom = () => pike([0, 0.69, -0.38], [0, 0.27, -0.07], { head: { flex: -35 } });
+/** Fault: feet walked back and hips low — a regular push-up in disguise. */
+const pkDrop = (low: boolean) => pike(low ? [0, 0.42, -0.55] : [0, 0.6, -0.62], low ? [0, 0.27, -0.05] : [0, 0.52, -0.12], { head: { flex: 5 } }, -1.37);
 
 export const pikePushup: ExerciseAnimSpec = {
   id: 'pike-pushup',

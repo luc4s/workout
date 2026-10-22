@@ -36,6 +36,7 @@ export interface TodaySet {
 export interface CoachContext {
   today: string;
   athlete: {
+    lastDeloadAt?: string;
     bodyweightKg?: number;
     pullupMax: number;
     pullupStage: string;
@@ -256,16 +257,98 @@ export function buildReviewContext(input: {
   };
 }
 
-/** Whole-history analysis: the rule layer's stats plus every completed session (newest first, capped). */
-export function buildAnalysisContext(input: { stats: TrainingStats; sessions: SessionRecord[]; sets: SetRecord[]; settings: Settings; now: number }): CoachContext {
+export interface DetailedSet {
+  slot: string;
+  n: number;
+  reps: number;
+  left?: number;
+  right?: number;
+  rir?: number;
+  kg?: number;
+  v?: string;
+  assist?: string;
+  target?: number;
+  setSec?: number;
+  restSec?: number;
+  /** Clock time the set was logged, HH:MM. */
+  at: string;
+}
+
+export interface DetailedSession {
+  id: number;
+  d: string;
+  start: string;
+  min?: number;
+  t: TemplateId;
+  variant: string;
+  flags?: string;
+  notes?: string;
+  rowing?: { distanceM?: number; avgSplit?: string };
+  targets?: Record<string, number[]>;
+  /** Headline and concerns of the stored Claude review, if any. */
+  review?: { headline?: string; concerns?: string[] };
+  sets: DetailedSet[];
+}
+
+function clockOf(ts: number): string {
+  const d = new Date(ts);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/** Every completed session with every set and every stored field, newest first (capped). */
+export function detailedSessions(sessions: SessionRecord[], sets: SetRecord[], cap = 150): DetailedSession[] {
+  const done = sessions
+    .filter((s) => s.endedAt)
+    .sort((a, b) => b.startedAt - a.startedAt)
+    .slice(0, cap);
+  return done.map((s) => {
+    const own = sets.filter((x) => x.sessionId === s.id).sort((a, b) => a.completedAt - b.completedAt);
+    const review = s.coach?.review?.data as { headline?: string; concerns?: string[] } | undefined;
+    const out: DetailedSession = {
+      id: s.id!,
+      d: dayLabel(s.startedAt),
+      start: clockOf(s.startedAt),
+      min: s.endedAt ? Math.round((s.endedAt - s.startedAt) / 60000) : undefined,
+      t: s.templateId,
+      variant: s.variantId,
+      sets: own.map((x) => {
+        const set: DetailedSet = { slot: x.slot, n: x.setNumber, reps: x.reps, at: clockOf(x.completedAt) };
+        if (x.repsLeft !== undefined) set.left = x.repsLeft;
+        if (x.repsRight !== undefined) set.right = x.repsRight;
+        if (x.rir !== undefined) set.rir = x.rir;
+        if (x.loadKg) set.kg = x.loadKg;
+        if (x.variationId) set.v = x.variationId;
+        if (x.assistance) set.assist = x.assistance;
+        const t = s.coach?.targets?.[x.slot]?.[x.setNumber - 1];
+        if (t !== undefined) set.target = t;
+        if (x.durationSec) set.setSec = x.durationSec;
+        const rest = restTakenBefore(x, own);
+        if (rest) set.restSec = Math.round(rest.sec);
+        return set;
+      }),
+    };
+    const f = flagsOf(s);
+    if (f) out.flags = f;
+    if (s.notes) out.notes = s.notes.slice(0, 500);
+    if (s.rowing && (s.rowing.distanceM || s.rowing.avgSplit)) out.rowing = s.rowing;
+    if (s.coach?.targets && Object.keys(s.coach.targets).length) out.targets = s.coach.targets;
+    if (review?.headline) out.review = { headline: review.headline, concerns: review.concerns?.slice(0, 3) };
+    return out;
+  });
+}
+
+/** Whole-history analysis: the rule layer's stats plus every completed session in full detail. */
+export function buildAnalysisContext(input: { stats: TrainingStats; sessions: SessionRecord[]; sets: SetRecord[]; settings: Settings; now: number }): CoachContext & { history: DetailedSession[] } {
   const { stats, sessions, sets, settings, now } = input;
   const d = (ts?: number) => (ts === undefined ? undefined : localDate(ts));
   return {
     today: dayLabel(now),
-    athlete: athlete(settings, sessions, now),
+    athlete: { ...athlete(settings, sessions, now), lastDeloadAt: d(settings.lastDeloadAt) },
     week: weekOf(sessions, now),
-    recent: recentSessions(sessions, sets, 60, undefined, true).map((r) => (r.notes ? { ...r, notes: r.notes.slice(0, 120) } : r)),
+    recent: [],
+    history: detailedSessions(sessions, sets),
     rules: {
+      note: 'history holds every completed session with every logged set (reps, left/right, RIR, kg, variation, target, set and rest seconds, clock time); stats below are computed from it.',
       sessions: stats.sessions,
       firstSession: d(stats.firstAt),
       lastSession: d(stats.lastAt),
@@ -285,7 +368,16 @@ export function buildAnalysisContext(input: { stats: TrainingStats; sessions: Se
         best: { reps: x.best.reps, v: x.best.variationId, kg: x.best.loadKg, d: d(x.best.at) },
         timeline: x.timeline.map((t) => ({ d: d(t.d), score: t.score, meanReps: t.meanReps, kg: t.kg, v: t.v })),
         stall: x.stall,
+        weeklyVolumeLast12: x.weeklyVolume,
+        meanSetSec: x.meanSetSec,
+        meanRestSec: x.meanRestSec,
+        rirHistogram: x.rirHistogram,
+        prs: x.prs.map((pr) => ({ d: d(pr.d), reps: pr.reps, kg: pr.kg, v: pr.v })),
       })),
+      startHourHistogram: stats.hourHistogram,
+      weekdayHistogramMonFirst: stats.weekdayHistogram,
+      longestGapDays: stats.longestGapDays,
+      meanTimeUseFullSessions: stats.timeUse,
     },
   };
 }
