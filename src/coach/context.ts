@@ -5,7 +5,7 @@
  */
 import { getTemplate, PRESCRIPTIONS, PULLUP_ROADMAP, templateOfKey } from '../data/program';
 import type { TemplateId } from '../data/types';
-import type { SessionRecord, SetRecord, Settings } from '../db/db';
+import type { HrSummary, SessionRecord, SetRecord, Settings } from '../db/db';
 import { restTakenBefore, type SessionOverview, type SessionRecommendation, type SessionReview, type SetFeedback, type TrainingStats } from '../logic/coach';
 import { clampStage, weeksSince } from '../logic/progression';
 import { sessionElapsedMs, type RunnerState } from '../logic/runner';
@@ -14,12 +14,29 @@ import { nextWorkStep, type WorkStep } from '../logic/steps';
 import { loadFor, targetFor } from '../logic/targets';
 import { localDate } from './store';
 
+/** Compact HR summary for the model. */
+export interface HrBrief {
+  avg: number;
+  max: number;
+  trimp?: number;
+  kcal?: number;
+  recovery?: number;
+  zonesMin?: number[];
+}
+
+export function hrBrief(h?: HrSummary): HrBrief | undefined {
+  if (!h) return undefined;
+  return { avg: h.avg, max: h.max, trimp: h.trimp, kcal: h.kcal, recovery: h.recoveryMean, zonesMin: h.zonesSec.map((z) => Math.round(z / 60)) };
+}
+
 export interface RecentSession {
   d: string;
   t: TemplateId;
   flags?: string;
   min?: number;
   notes?: string;
+  hr?: HrBrief;
+  readiness?: { restingHr: number; rmssd: number; score: string };
   slots: Record<string, { v?: string; kg?: number; reps: number[]; rir?: (number | null)[] }>;
 }
 
@@ -31,6 +48,7 @@ export interface TodaySet {
   rir?: number;
   kg?: number;
   restSec?: number;
+  hr?: { mean?: number; max?: number; end?: number; recovery60?: number };
 }
 
 export interface CoachContext {
@@ -45,6 +63,7 @@ export interface CoachContext {
     weeksSinceDeload?: number;
     variations: Record<string, string>;
     loads: Record<string, number>;
+    hr?: { hrMax?: number; hrRest?: number; birthYear?: number; sex?: string };
   };
   week: { done: TemplateId[]; missing: TemplateId[] };
   recent: RecentSession[];
@@ -56,6 +75,7 @@ export interface CoachContext {
     targetMin: number;
     sets: TodaySet[];
     upNext?: { slot: string; n: number; target?: number; rir: string; kg?: number };
+    hr?: unknown;
   };
 }
 
@@ -90,6 +110,9 @@ export function recentSessions(sessions: SessionRecord[], sets: SetRecord[], n: 
     if (f) out.flags = f;
     if (s.endedAt) out.min = Math.round((s.endedAt - s.startedAt) / 60000);
     if (withNotes && s.notes) out.notes = s.notes.slice(0, 300);
+    const hb = hrBrief(s.hr?.summary);
+    if (hb) out.hr = hb;
+    if (s.hr?.readiness) out.readiness = { restingHr: s.hr.readiness.restingHr, rmssd: s.hr.readiness.rmssd, score: s.hr.readiness.score };
     return out;
   });
 }
@@ -106,6 +129,7 @@ function athlete(settings: Settings, sessions: SessionRecord[], now: number): Co
     weeksSinceDeload: weeksSince(settings.lastDeloadAt ?? firstAt, now),
     variations: settings.variations,
     loads: settings.loads,
+    ...(settings.hrMax || settings.hrRest || settings.birthYear ? { hr: { hrMax: settings.hrMax, hrRest: settings.hrRest, birthYear: settings.birthYear, sex: settings.sex } } : {}),
   };
 }
 
@@ -126,6 +150,7 @@ export function buildBriefContext(input: {
   sets: SetRecord[];
   settings: Settings;
   now: number;
+  hr?: { readiness?: { at: string; score: string; reason: string }; load?: { week: number; prevWeek: number; monotony?: number } };
 }): CoachContext {
   const { rec, overview, sessions, sets, settings, now } = input;
   return {
@@ -146,6 +171,7 @@ export function buildBriefContext(input: {
         presets: rec.flags,
         stalls: rec.stalls.map((s) => ({ slot: s.slot, kind: s.stall })),
         suggestions: rec.suggestions,
+        ...(input.hr ? { heartRate: input.hr } : {}),
       },
       plan: overview
         ? {
@@ -178,8 +204,9 @@ export function buildRestContext(input: {
   sets: SetRecord[];
   settings: Settings;
   now: number;
+  hr?: { sessionMean?: number; sessionMax?: number; hrMax?: number; prevRecovery?: number; usualRecovery?: number; readiness?: { score: string; reason: string } };
 }): CoachContext {
-  const { state, feedback, today, sessions, sets, settings, now } = input;
+  const { state, feedback, today, sessions, sets, settings, now, hr } = input;
   const template = getTemplate(state.templateId);
   const chrono = [...today].sort((a, b) => a.completedAt - b.completedAt);
   const todaySets: TodaySet[] = chrono.map((s) => {
@@ -192,6 +219,7 @@ export function buildRestContext(input: {
     if (s.loadKg) out.kg = s.loadKg;
     const rest = restTakenBefore(s, chrono);
     if (rest) out.restSec = Math.round(rest.sec);
+    if (s.hr) out.hr = { mean: s.hr.mean, max: s.hr.max, end: s.hr.end, recovery60: s.hr.recovery60 };
     return out;
   });
   const next = nextWorkStep(state.steps, state.index);
@@ -211,7 +239,7 @@ export function buildRestContext(input: {
       plannedTargets: state.suggestions[feedback.slot]?.repsTarget,
       planMessage: state.suggestions[feedback.slot]?.message,
     },
-    today_session: { t: state.templateId, flags, elapsedMin: Math.round(sessionElapsedMs(state, now) / 6000) / 10, targetMin: template.targetMin, sets: todaySets, upNext },
+    today_session: { t: state.templateId, flags, elapsedMin: Math.round(sessionElapsedMs(state, now) / 6000) / 10, targetMin: template.targetMin, sets: todaySets, upNext, ...(hr ? { hr } : {}) },
   };
 }
 
@@ -234,9 +262,11 @@ export function buildReviewContext(input: {
     if (s.loadKg) out.kg = s.loadKg;
     const rest = restTakenBefore(s, chrono);
     if (rest) out.restSec = Math.round(rest.sec);
+    if (s.hr) out.hr = { mean: s.hr.mean, max: s.hr.max, end: s.hr.end, recovery60: s.hr.recovery60 };
     return out;
   });
   const flags = [session.flags.badDay ? 'bad-day' : '', session.flags.deload ? 'deload' : '', session.flags.finisher ? 'finisher' : 'no-finisher'].filter(Boolean);
+  const hrSum = hrBrief(session.hr?.summary);
   return {
     today: dayLabel(now),
     athlete: athlete(settings, sessions, now),
@@ -253,6 +283,7 @@ export function buildReviewContext(input: {
       targetMin: review.targetMin,
       sets: todaySets,
       ...(session.notes ? { notes: session.notes.slice(0, 500) } : {}),
+      ...(hrSum ? { hr: { ...hrSum, readiness: session.hr?.readiness ? { score: session.hr.readiness.score, reason: session.hr.readiness.reason } : undefined, notes: review.hrNotes } } : {}),
     },
   };
 }
@@ -272,6 +303,7 @@ export interface DetailedSet {
   restSec?: number;
   /** Clock time the set was logged, HH:MM. */
   at: string;
+  hr?: { mean?: number; max?: number; end?: number; recovery60?: number };
 }
 
 export interface DetailedSession {
@@ -287,6 +319,7 @@ export interface DetailedSession {
   targets?: Record<string, number[]>;
   /** Headline and concerns of the stored Claude review, if any. */
   review?: { headline?: string; concerns?: string[] };
+  hr?: HrBrief & { readiness?: { restingHr: number; rmssd: number; score: string } };
   sets: DetailedSet[];
 }
 
@@ -324,9 +357,12 @@ export function detailedSessions(sessions: SessionRecord[], sets: SetRecord[], c
         if (x.durationSec) set.setSec = x.durationSec;
         const rest = restTakenBefore(x, own);
         if (rest) set.restSec = Math.round(rest.sec);
+        if (x.hr) set.hr = { mean: x.hr.mean, max: x.hr.max, end: x.hr.end, recovery60: x.hr.recovery60 };
         return set;
       }),
     };
+    const hb = hrBrief(s.hr?.summary);
+    if (hb || s.hr?.readiness) out.hr = { ...(hb ?? { avg: 0, max: 0 }), readiness: s.hr?.readiness ? { restingHr: s.hr.readiness.restingHr, rmssd: s.hr.readiness.rmssd, score: s.hr.readiness.score } : undefined };
     const f = flagsOf(s);
     if (f) out.flags = f;
     if (s.notes) out.notes = s.notes.slice(0, 500);
@@ -378,6 +414,14 @@ export function buildAnalysisContext(input: { stats: TrainingStats; sessions: Se
       weekdayHistogramMonFirst: stats.weekdayHistogram,
       longestGapDays: stats.longestGapDays,
       meanTimeUseFullSessions: stats.timeUse,
+      heartRate: stats.hr
+        ? {
+            readinessChecks: stats.hr.readiness.map((r) => ({ d: d(r.d), restingHr: r.restingHr, rmssd: r.rmssd, score: r.score })),
+            byTemplate: stats.hr.byTemplate,
+            weeklyTrimpLast12: stats.hr.weeklyTrimp,
+            usualRecovery60: stats.hr.usualRecovery,
+          }
+        : undefined,
     },
   };
 }

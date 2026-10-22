@@ -40,6 +40,14 @@ animated technique guides.
   calibration, PRs) with next-time suggestions. On demand, a Claude analysis of the whole history
   (trend per exercise, adherence, RIR habits, recommendations). Suggestions are accepted with one
   tap; nothing changes otherwise.
+- **Heart-rate strap** — pair a Polar H10 (or any Bluetooth strap with the standard heart-rate
+  service) from Settings; Chrome on Android or desktop only (Web Bluetooth). Live HR in the runner,
+  HR at the end of each set and the drop during the rest, optional HR-guided rest, zone targets for
+  the rowing intervals, a 60 s readiness check before the warm-up (resting HR + HRV against your own
+  baseline, with a one-tap bad-day switch), and per session: HR chart, average / max, time in zones,
+  training load (TRIMP), an HR-based calorie estimate, mean recovery, all compared with the previous
+  session of the same kind. Progress shows resting HR, HRV, weekly load and recovery trends; the
+  coach and Claude get the same numbers. See *Heart rate* below for what the numbers mean.
 - **Exercise guides** — setup, execution, cues, common mistakes, regressions/progressions and
   sources for every movement, with a 3D animation (glTF) you can rotate — drag, double-tap to
   reset, Side / Front / ¾ presets — and red-highlighted mistake demos. Every pose is checked
@@ -152,12 +160,39 @@ Nothing else. Rough cost on Fable 5.1 (thinking tokens are billed as output): �
 note, ≈ $0.1–0.2 for a brief or review — about $0.7–1 for a full session — and ≈ $0.2–0.4 for an
 analysis; Settings shows the month's usage.
 
+## Heart rate
+
+`src/hr/ble.ts` talks to the strap with Web Bluetooth (Heart Rate Measurement 0x2A37: bpm, sensor
+contact, RR intervals; Battery Service for the level). Chrome on Android asks you to pick the strap
+once; afterwards it reconnects on its own. Safari / WebKit (iPad) has no Web Bluetooth, so the strap
+cannot be used there. Recording only runs while the app is on screen (the runner keeps the screen
+awake). `src/hr/recorder.ts` stores one sample per second in `SessionRecord.hr` (so it is backed up)
+and per-set HR on `SetRecord.hr`.
+
+What the numbers are (`src/hr/metrics.ts`):
+- **Zones**: % of max HR — Z1 50–60, Z2 60–70, Z3 70–80, Z4 80–90, Z5 90–100. Max HR is the value in
+  Settings, else the age estimate (Tanaka, 208 − 0.7 × age); the highest 5 s mean ever seen while
+  wearing the strap replaces the estimate.
+- **Load**: Banister TRIMP (HR reserve weighting) once a resting HR is known, Edwards zone TRIMP
+  before that. Weekly load and monotony (mean / SD of daily load) feed the Today card.
+- **Calories**: Keytel 2005 HR formula (needs sex, age, weight). It was fitted on steady cardio, so
+  strength sessions read high — treat it as a comparison between sessions, not a number to eat by.
+- **Recovery**: bpm dropped in the 60 s after a set (5 s means). Slow recovery against your usual
+  shows up in the rest notes and the review.
+- **Readiness**: resting HR (lowest 30 s mean) and RMSSD from RR intervals (artifacts > 20 % removed)
+  in a 60 s seated check, compared with the baseline of your previous checks (needs three). Low HRV
+  or a raised resting HR → caution / run down and a bad-day suggestion. Not a medical tool.
+
 ## Code map
 
 - `src/data/program.ts` — the program encoded from the PDF; `exercises.ts` — technique guides; `rules.ts`
 - `src/logic/` — `steps.ts` (session → steps), `runner.ts` (timer state machine), `progression.ts`,
   `schedule.ts`, `session.ts` (DB orchestration), `targets.ts` (rep target / load for a step),
   `coach.ts` (rule-based coach)
+- `src/hr/` — heart-rate strap: `ble.ts` (Web Bluetooth, 0x2A37 parser), `recorder.ts` (1 Hz recording
+  into the session, set recovery, session summary), `metrics.ts` (zones, TRIMP, calories, HRV,
+  readiness), `useHeartRate.ts`; `src/screens/hr/` — strap settings, runner badge, rest HR, readiness
+  check, session HR card
 - `src/coach/` — the Claude layer: `client.ts` (SDK call, fallback, usage), `schema.ts` (JSON
   schemas + guards), `prompts.ts` (system prompt generated from the program), `context.ts` (what is
   sent), `ask.ts`, `apply.ts` (accepted suggestions → app actions), `store.ts` (key, toggles, usage)

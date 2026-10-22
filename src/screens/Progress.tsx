@@ -39,6 +39,20 @@ export default function Progress() {
   });
   const last4 = sessions.filter((s) => s.startedAt >= thisWeek - 3 * WEEK);
 
+  // Heart-rate strap trends
+  const readiness = sessions
+    .filter((s) => s.hr?.readiness)
+    .map((s) => s.hr!.readiness!)
+    .sort((a, b) => a.at - b.at);
+  const loadBars = weeks.map((w) => {
+    const list = sessions.filter((s) => s.startedAt >= w && s.startedAt < w + WEEK && s.hr?.summary?.trimp !== undefined);
+    return { key: `hr${w}`, label: new Date(w).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }), value: Math.round(list.reduce((a, s) => a + (s.hr!.summary!.trimp ?? 0), 0)), detail: list.length ? `${list.length} session${list.length > 1 ? 's' : ''}` : 'No strap data' };
+  });
+  const recoveryPoints = sessions
+    .filter((s) => s.hr?.summary?.recoveryMean !== undefined)
+    .sort((a, b) => a.startedAt - b.startedAt)
+    .map((s) => ({ x: s.startedAt, y: s.hr!.summary!.recoveryMean!, label: labelOf(s.templateId) }));
+
   const history = current
     ? groupBySession(
         sets.filter((s) => s.slot === current && ended.has(s.sessionId)),
@@ -97,6 +111,42 @@ export default function Progress() {
         <div className="section-title">Training time per week</div>
         <BarChart bars={weekBars} unit=" min" />
       </div>
+
+      {(readiness.length > 0 || loadBars.some((b) => b.value > 0)) && (
+        <div className="card stack">
+          <div className="section-title">Heart rate</div>
+          <div className="grid grid-2">
+            {readiness.length > 0 && (
+              <div className="stack tight">
+                <div className="muted" style={{ fontSize: 14 }}>
+                  Resting HR from the readiness checks (lower is better)
+                </div>
+                <LineChart points={readiness.map((r) => ({ x: r.at, y: r.restingHr, label: r.score }))} unit=" bpm" height={160} zeroBased={false} />
+                <div className="muted" style={{ fontSize: 14 }}>
+                  HRV (RMSSD, higher is better)
+                </div>
+                <LineChart points={readiness.map((r) => ({ x: r.at, y: r.rmssd, label: r.score }))} unit=" ms" height={160} zeroBased={false} />
+              </div>
+            )}
+            {loadBars.some((b) => b.value > 0) && (
+              <div className="stack tight">
+                <div className="muted" style={{ fontSize: 14 }}>
+                  Training load per week (TRIMP, strap sessions)
+                </div>
+                <BarChart bars={loadBars} unit="" />
+                {recoveryPoints.length > 1 && (
+                  <>
+                    <div className="muted" style={{ fontSize: 14 }}>
+                      Mean recovery after sets (bpm in 60 s, higher is better)
+                    </div>
+                    <LineChart points={recoveryPoints} unit=" bpm" height={140} zeroBased={false} />
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="card stack">
         <div className="row between wrap">

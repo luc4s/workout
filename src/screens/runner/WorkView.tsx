@@ -15,6 +15,7 @@ import { logSet } from '../../logic/session';
 import { remainingSetsOf, type WorkStep } from '../../logic/steps';
 import { GuideContent } from '../GuideContent';
 import { RestPauseSwitch } from './RestPauseSwitch';
+import { recorder } from '../../hr/recorder';
 
 export { exerciseForStep, loadFor, targetFor, variationChanged };
 
@@ -94,6 +95,7 @@ export function WorkView(props: {
       loadKg: loadable ? form.loadKg : undefined,
       rir: form.rir,
       durationSec: Math.round(elapsed),
+      hr: recorder.setStats(state.stepStartedAt, Date.now()),
     });
     if (loadable && form.loadKg !== plan.loadKg) dispatch({ type: 'plan', slot: step.slot, plan: { loadKg: form.loadKg } });
     if (isLast) onFinish();

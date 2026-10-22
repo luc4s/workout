@@ -20,6 +20,60 @@ export interface SessionCoachData {
   notes?: Record<string, CoachStepNote>;
 }
 
+/* ---------- heart rate (Polar H10 or any BLE heart-rate strap) ---------- */
+
+/** Per-session HR summary, computed when the session ends (src/hr/metrics.ts). */
+export interface HrSummary {
+  avg: number;
+  max: number;
+  min: number;
+  /** Seconds in zones 1–5 (%HRmax 50–60, 60–70, 70–80, 80–90, 90–100). */
+  zonesSec: number[];
+  /** Banister TRIMP (HR reserve) when resting HR is known, else Edwards zone TRIMP. */
+  trimp?: number;
+  trimpMethod?: 'banister' | 'edwards';
+  /** Keytel HR-based estimate; only an estimate for strength work. */
+  kcal?: number;
+  /** Mean 60 s heart-rate recovery after sets (bpm). */
+  recoveryMean?: number;
+  samples: number;
+  /** Share of the session with a valid sample (0–1). */
+  coverage: number;
+  hrMax: number;
+  hrRest?: number;
+}
+
+/** Pre-session readiness check: 60 s seated, resting HR and HRV (RMSSD from RR intervals). */
+export interface Readiness {
+  at: number;
+  restingHr: number;
+  rmssd: number;
+  lnRmssd: number;
+  score: 'go' | 'caution' | 'rest';
+  reason: string;
+  baseline?: { n: number; lnRmssd: number; lnRmssdSd: number; restingHr: number; restingHrSd: number };
+}
+
+export interface SessionHr {
+  /** Timestamp of bpm[0]; one sample per second, -1 where the strap had no reading. */
+  startedAt: number;
+  bpm: number[];
+  /** RR intervals in ms, artifact-filtered, in order (not aligned to bpm). */
+  rr?: number[];
+  summary?: HrSummary;
+  readiness?: Readiness;
+  deviceName?: string;
+}
+
+export interface SetHr {
+  start?: number;
+  end?: number;
+  max?: number;
+  mean?: number;
+  /** HR drop 60 s after the set ended (bpm). */
+  recovery60?: number;
+}
+
 export interface SessionFlags {
   badDay: boolean;
   deload: boolean;
@@ -37,6 +91,8 @@ export interface SessionRecord {
   /** Distance / split for rowing sessions. */
   rowing?: { distanceM?: number; avgSplit?: string };
   coach?: SessionCoachData;
+  /** Heart-rate recording, when a strap was connected. */
+  hr?: SessionHr;
 }
 
 export interface SetRecord {
@@ -60,6 +116,7 @@ export interface SetRecord {
   completedAt: number;
   badDay?: boolean;
   deload?: boolean;
+  hr?: SetHr;
 }
 
 export interface Settings {
@@ -75,6 +132,19 @@ export interface Settings {
   restScale: number;
   /** Smallest weight jump available (kg); used for steppers and load progression. */
   loadStep: number;
+  /* Heart-rate strap profile (all optional). */
+  birthYear?: number;
+  sex?: 'male' | 'female';
+  /** Max HR: measured (highest seen while wearing the strap) or set by hand; else estimated from age. */
+  hrMax?: number;
+  /** Resting HR: from the readiness checks, or set by hand. */
+  hrRest?: number;
+  /** 60 s seated readiness check before the warm-up when the strap is on (default on). */
+  readinessCheck?: boolean;
+  /** Rest timer turns green only once HR has come down (default off). */
+  hrGuidedRest?: boolean;
+  /** Name of the strap last paired, to reconnect without the picker. */
+  strapName?: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {

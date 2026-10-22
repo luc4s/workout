@@ -12,7 +12,7 @@ import { PRESCRIPTIONS } from '../data/program';
 const json = (v: unknown) => JSON.stringify(v);
 
 export function askBrief(
-  input: { rec: SessionRecommendation; overview?: SessionOverview; sessions: SessionRecord[]; sets: SetRecord[]; settings: Settings; now: number; signal?: AbortSignal },
+  input: { rec: SessionRecommendation; overview?: SessionOverview; sessions: SessionRecord[]; sets: SetRecord[]; settings: Settings; now: number; signal?: AbortSignal; hr?: Parameters<typeof buildBriefContext>[0]['hr'] },
   deps?: CoachDeps,
 ): Promise<CoachResult<Brief>> {
   const ctx = buildBriefContext(input);
@@ -25,7 +25,7 @@ export function askBrief(
 }
 
 export function askRestNote(
-  input: { state: RunnerState; feedback: SetFeedback; record: SetRecord; today: SetRecord[]; sessions: SessionRecord[]; sets: SetRecord[]; settings: Settings; now: number; signal?: AbortSignal },
+  input: { state: RunnerState; feedback: SetFeedback; record: SetRecord; today: SetRecord[]; sessions: SessionRecord[]; sets: SetRecord[]; settings: Settings; now: number; signal?: AbortSignal; hr?: Parameters<typeof buildRestContext>[0]['hr'] },
   deps?: CoachDeps,
 ): Promise<CoachResult<RestNote>> {
   const ctx = buildRestContext(input);

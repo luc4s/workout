@@ -282,6 +282,42 @@
   border-color: var(--accent);
 }
 
+/* ---------- heart rate ---------- */
+
+.hr-badge {
+  font-size: 16px;
+  font-weight: 800;
+  white-space: nowrap;
+  padding: 0 6px;
+}
+
+.hr-badge.btn.small {
+  font-size: 13px;
+  font-weight: 650;
+  min-height: 32px;
+}
+
+.rest-hr {
+  font-size: 15px;
+}
+
+.readiness {
+  width: 100%;
+  max-width: 440px;
+  padding: 6px 10px;
+  gap: 4px;
+  font-size: 14px;
+}
+
+/* With the readiness card on screen the warm-up ring shrinks so the figure keeps its caption. */
+.rest-timer:has(.readiness) .ring {
+  width: min(100%, 34vh);
+}
+
+.rest-timer .warm-anim {
+  min-height: 80px;
+}
+
 /* ---------- coach column on the rest screen ---------- */
 
 .coach-col {

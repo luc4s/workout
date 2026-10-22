@@ -370,6 +370,20 @@ describe('backup', () => {
     await expect(importBackup({ app: 'nope' })).rejects.toThrow();
   });
 
+  it('heart-rate data rides inside sessions and sets and round-trips through a backup', async () => {
+    const hr = { startedAt: 10, bpm: [120, 121, -1, 125], rr: [500, 510], summary: { avg: 122, max: 125, min: 120, zonesSec: [0, 0, 4, 0, 0], samples: 3, coverage: 0.75, hrMax: 185 } };
+    await db.sessions.put({ id: 8, templateId: 'B', variantId: 'standard', startedAt: 1, endedAt: 2, flags: { badDay: false, deload: false, finisher: false }, hr });
+    await db.sets.put({ id: '8:B.pushup#1', sessionId: 8, templateId: 'B', slot: 'B.pushup', exerciseId: 'pushup', setNumber: 1, reps: 10, completedAt: 2, hr: { mean: 140, max: 150, end: 148, recovery60: 25 } });
+    const file = JSON.parse(JSON.stringify(await exportBackup()));
+    await db.sessions.clear();
+    await db.sets.clear();
+    await importBackup(file);
+    expect((await db.sessions.get(8))?.hr?.summary?.avg).toBe(122);
+    expect((await db.sets.get('8:B.pushup#1'))?.hr?.recovery60).toBe(25);
+    await db.sessions.delete(8);
+    await db.sets.delete('8:B.pushup#1');
+  });
+
   it('never exports the coach rows and keeps them across an import', async () => {
     await db.kv.put({ key: 'coach', value: { apiKey: 'sk-ant-secret' } });
     await db.kv.put({ key: 'coach:brief', value: { date: '2026-01-01' } });

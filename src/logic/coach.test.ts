@@ -274,6 +274,52 @@ describe('runner coach actions', () => {
   });
 });
 
+describe('heart-rate aware rules', () => {
+  const t0 = monday;
+  const settings: Settings = { ...DEFAULT_SETTINGS, loads: { 'A.dip': 10 }, variations: { 'A.dip': 'bar' } };
+  const prep = prepA({ 'A.dip': { at: t0 - 7 * DAY, reps: [7, 7, 6], loadKg: 10, variationId: 'bar' } }, settings);
+
+  it('a fresh readiness check steers the recommendation', () => {
+    const r = recommendSession([session('B', monday - 3 * DAY)], [], DEFAULT_SETTINGS, monday, {
+      readiness: { at: monday - 3600_000, restingHr: 62, rmssd: 35, lnRmssd: 3.56, score: 'rest', reason: 'Clearly below your baseline.' },
+    });
+    expect(r.readiness).toBe('rest');
+    expect(r.suggestions.some((s) => s.kind === 'bad-day')).toBe(true);
+    const stale = recommendSession([session('B', monday - 3 * DAY)], [], DEFAULT_SETTINGS, monday, { readiness: { at: monday - 2 * DAY, restingHr: 62, rmssd: 35, lnRmssd: 3.56, score: 'rest', reason: 'x' } });
+    expect(stale.readiness).toBe('go');
+    const loaded = recommendSession([session('B', monday - 3 * DAY)], [], DEFAULT_SETTINGS, monday, { load: { week: 200, prevWeek: 100, monotony: 2.5 } });
+    expect(loaded.why.filter((w) => /load/.test(w))).toHaveLength(2);
+  });
+
+  it('slow HR recovery after the previous set becomes the headline', () => {
+    let s = runnerA(prep, t0);
+    s = runnerReducer(s, { type: 'goto', index: 3, now: t0 + 8 * 60_000 });
+    const dip = s.steps[3] as WorkStep;
+    const rec = logged(s, 'A.dip#1', 7, 1, t0 + 9 * 60_000);
+    const slow = setFeedback(s, dip, rec, [rec], rec.completedAt, { prevRecovery: 12, usualRecovery: 30, hrMax: 185 });
+    expect(slow.headline).toMatch(/recovered only 12 bpm/);
+    expect(slow.cue).toBe('Take the full rest');
+    const fine = setFeedback(s, dip, rec, [rec], rec.completedAt, { prevRecovery: 30, usualRecovery: 30, hrMax: 185 });
+    expect(fine.headline).toMatch(/target hit/);
+    const nearMax = setFeedback(s, dip, rec, [rec], rec.completedAt, { setMean: 176, hrMax: 185 });
+    expect(nearMax.headline).toMatch(/near your limit/);
+  });
+
+  it('the review reports HR load and the comparison', () => {
+    const prev = session('A', monday - 7 * DAY);
+    const cur = session('A', monday);
+    const sets = setsOf(cur, 'A.dip', [8, 7, 7], { loadKg: 10, variationId: 'bar' });
+    const summary = { avg: 128, max: 170, min: 80, zonesSec: [600, 900, 600, 300, 60], trimp: 60, trimpMethod: 'banister' as const, kcal: 410, recoveryMean: 26, samples: 2460, coverage: 0.95, hrMax: 185, hrRest: 55 };
+    const previous = { ...summary, avg: 118, trimp: 50 };
+    const r = sessionReview({ session: cur, sets, allSets: sets, sessions: [prev, cur], settings, nextTime: [], hr: { summary, previous, usualRecovery: 30 } });
+    expect(r.hrNotes).toHaveLength(3);
+    expect(r.hrNotes![0]).toMatch(/Average HR 128, max 170 \(92% of max\) · 6 min in zones 4–5 · load 60 TRIMP · ≈ 410 kcal/);
+    expect(r.hrNotes![1]).toMatch(/average HR \+10 bpm, load \+10 — the same work cost more today/);
+    expect(r.hrNotes![2]).toMatch(/Recovery after sets: 26 bpm in 60 s \(usual 30\)/);
+    expect(sessionReview({ session: cur, sets, allSets: sets, sessions: [prev, cur], settings, nextTime: [] }).hrNotes).toBeUndefined();
+  });
+});
+
 describe('dropping steps from a rest keeps the runner on a valid step', () => {
   const t0 = monday;
   const prep = prepA({}, DEFAULT_SETTINGS);

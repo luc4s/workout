@@ -128,6 +128,11 @@ export function CoachReviewCard(props: { session: SessionRecord; sets: SetRecord
           {h}
         </Note>
       ))}
+      {review.hrNotes?.map((h) => (
+        <Note key={h} kind="plain">
+          ♥ {h}
+        </Note>
+      ))}
 
       <SuggestionList
         suggestions={suggestions}

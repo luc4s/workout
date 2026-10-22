@@ -6,6 +6,7 @@ import { downloadJson, exportBackup, importBackup } from '../db/backup';
 import { Chips, Note, Stepper } from '../components/controls';
 import { labelOf } from '../logic/schedule';
 import { CoachSettingsCard } from './coach/CoachSettingsCard';
+import { StrapSettingsCard } from './hr/StrapSettingsCard';
 
 export default function SettingsScreen() {
   const settings = (useLiveQuery(() => db.kv.get('settings'), [])?.value as Settings | undefined) ?? DEFAULT_SETTINGS;
@@ -112,6 +113,8 @@ export default function SettingsScreen() {
           </button>
         </div>
       </div>
+
+      <StrapSettingsCard />
 
       <CoachSettingsCard />
 

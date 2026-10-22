@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { getTemplate } from '../../data/program';
-import { getRunner, saveRunner } from '../../db/db';
+import { getRunner, getSettings, saveRunner } from '../../db/db';
 import { Sheet } from '../../components/controls';
 import { IconClose, IconNext, IconPause, IconPlay, IconPrev } from '../../components/icons';
 import { formatClock, useNow } from '../../hooks/useNow';
@@ -14,6 +14,9 @@ import { WarmupView } from './WarmupView';
 import { IntervalView } from './IntervalView';
 import { StepList } from './StepList';
 import { useCoachNotes } from './useCoachNotes';
+import { recorder } from '../../hr/recorder';
+import { strap } from '../../hr/ble';
+import { HrBadge } from '../hr/HrBadge';
 import './runner.css';
 
 export default function Runner() {
@@ -43,6 +46,14 @@ function RunnerInner({ initial }: { initial: RunnerState }) {
 
   const dispatch = useCallback((a: RunnerAction) => rawDispatch(a), []);
   const { pending: coachPending } = useCoachNotes(state, dispatch);
+  // Record the strap (if any) for this session; the recorder keeps going when this screen is left.
+  // After a reload the strap is reconnected silently when the browser already knows it.
+  useEffect(() => {
+    recorder.start(state.sessionId);
+    getSettings().then((s) => {
+      if (s.strapName) strap.autoConnect(s.strapName);
+    });
+  }, [state.sessionId]);
 
   const finish = useCallback(
     async (extra?: Parameters<typeof finishSession>[1]) => {
@@ -88,6 +99,7 @@ function RunnerInner({ initial }: { initial: RunnerState }) {
             {wake === 'active' && <span className="faint"> · screen on</span>}
           </div>
         </div>
+        <HrBadge />
         <button className="progress-track" onClick={() => setListOpen(true)} aria-label="All steps">
           <span style={{ width: `${((state.index + 1) / state.steps.length) * 100}%` }} />
         </button>

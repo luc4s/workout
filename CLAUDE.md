@@ -44,6 +44,15 @@ backups. Every change must keep that data working with **no migration step**:
 - New `RunnerState.coach` / `SessionRecord.coach` fields are optional; a runner saved without them
   must still resume.
 
+## Heart rate
+
+- Strap data lives in optional fields only (`SessionRecord.hr`, `SetRecord.hr`, HR profile fields on
+  `Settings`); sessions without a strap must render exactly as before.
+- `src/hr/ble.ts` is the only place that touches `navigator.bluetooth`; everything else goes through
+  the `strap` singleton / `recorder`, so tests and headless checks can fake it.
+- HR maths stays in `src/hr/metrics.ts` as pure functions with tests; formulas and their limits are
+  documented in the README (*Heart rate*) — keep the UI wording honest about estimates.
+
 ## Checks
 
 ```sh

@@ -6,6 +6,10 @@ import { IconPlay } from '../../components/icons';
 import { formatClock } from '../../hooks/useNow';
 import { intervalPosition, stepElapsedMs, type RunnerAction, type RunnerState } from '../../logic/runner';
 import type { IntervalStep } from '../../logic/steps';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db, DEFAULT_SETTINGS, type Settings } from '../../db/db';
+import { hrMaxOf } from '../../hr/metrics';
+import { useStrap } from '../../hr/useHeartRate';
 
 const COLOR = { hard: 'var(--hard)', easy: 'var(--rest)', steady: 'var(--accent)' } as const;
 
@@ -27,6 +31,13 @@ export function IntervalView(props: {
   const [split, setSplit] = useState('');
   const [notes, setNotes] = useState('');
   const lastPhase = useRef(pos.phaseIndex);
+  const strapState = useStrap();
+  const settings = { ...DEFAULT_SETTINGS, ...((useLiveQuery(() => db.kv.get('settings'), [])?.value as Partial<Settings> | undefined) ?? {}) };
+  const hrMax = hrMaxOf(settings);
+  // Zone targets per phase: hard ≥ 85 % HRmax, steady 70–80 %, easy ≤ 70 %.
+  const target = phase.intensity === 'hard' ? { min: Math.round(hrMax * 0.85) } : phase.intensity === 'steady' ? { min: Math.round(hrMax * 0.7), max: Math.round(hrMax * 0.8) } : { max: Math.round(hrMax * 0.7) };
+  const bpm = strapState.status === 'on' ? strapState.bpm : undefined;
+  const onTarget = bpm === undefined ? undefined : (target.min === undefined || bpm >= target.min) && (target.max === undefined || bpm <= target.max);
 
   useEffect(() => {
     if (started && pos.phaseIndex !== lastPhase.current) {
@@ -105,6 +116,15 @@ export function IntervalView(props: {
         {hardTotal > 0 && (
           <div className="muted">
             Hard interval {Math.max(hardDone, 0)} of {hardTotal}
+          </div>
+        )}
+        {bpm !== undefined && (
+          <div className="rest-hr num">
+            <span style={{ color: onTarget ? 'var(--good-ink)' : 'var(--warn)', fontWeight: 800 }}>♥ {bpm}</span>
+            <span className="muted">
+              {' '}
+              · target {target.min !== undefined && target.max !== undefined ? `${target.min}–${target.max}` : target.min !== undefined ? `≥ ${target.min}` : `≤ ${target.max}`} bpm
+            </span>
           </div>
         )}
         {next && (

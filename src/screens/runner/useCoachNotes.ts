@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { askRestNote } from '../../coach/ask';
 import { useCoachConfig } from '../../coach/store';
 import { db, getSettings } from '../../db/db';
-import { setFeedback } from '../../logic/coach';
+import { setFeedback, usualRecoveryOf } from '../../logic/coach';
+import { recorder } from '../../hr/recorder';
+import { hrMaxOf, recovery60, statsBetween } from '../../hr/metrics';
 import type { RunnerAction, RunnerState } from '../../logic/runner';
 import type { WorkStep } from '../../logic/steps';
 
@@ -52,7 +54,22 @@ export function useCoachNotes(state: RunnerState, dispatch: (a: RunnerAction) =>
     const today = await db.sets.where('sessionId').equals(st.sessionId).toArray();
     const record = today.find((s) => s.id === `${st.sessionId}:${step.id}`);
     if (!record) return;
-    const feedback = setFeedback(latest.current, step, record, today, Date.now());
+    // Heart rate: recovery after the previous set, the usual recovery, and this set's mean.
+    const hrRec = recorder.snapshot();
+    let hrCtx: Parameters<typeof setFeedback>[5] = {};
+    let hrForClaude: { sessionMean?: number; sessionMax?: number; hrMax?: number; prevRecovery?: number; usualRecovery?: number; readiness?: { score: string; reason: string } } | undefined;
+    if (hrRec && hrRec.bpm.some((b) => b > 0)) {
+      const settings0 = await getSettings();
+      const allSets = await db.sets.toArray();
+      const prev = today.filter((s) => s.id !== record.id && s.completedAt < record.completedAt).sort((a, b) => b.completedAt - a.completedAt)[0];
+      const prevRecovery = prev ? recovery60(hrRec, prev.completedAt) : undefined;
+      const usualRecovery = usualRecoveryOf(allSets, st.startedAt);
+      const session = statsBetween(hrRec, hrRec.startedAt, Date.now());
+      hrCtx = { prevRecovery, usualRecovery, setMean: record.hr?.mean, sessionMean: session.mean, hrMax: hrMaxOf(settings0) };
+      const readiness = (await db.sessions.get(st.sessionId))?.hr?.readiness;
+      hrForClaude = { sessionMean: session.mean, sessionMax: session.max, hrMax: hrMaxOf(settings0), prevRecovery, usualRecovery, readiness: readiness ? { score: readiness.score, reason: readiness.reason } : undefined };
+    }
+    const feedback = setFeedback(latest.current, step, record, today, Date.now(), hrCtx);
     dispatch({ type: 'coachNote', stepId: step.id, note: { rule: feedback } });
     const c = cfgRef.current;
     if (!c?.apiKey || !c.inSession || (typeof navigator !== 'undefined' && navigator.onLine === false)) return;
@@ -66,7 +83,7 @@ export function useCoachNotes(state: RunnerState, dispatch: (a: RunnerAction) =>
     });
     const [sessions, sets, settings] = await Promise.all([db.sessions.toArray(), db.sets.toArray(), getSettings()]);
     if (ac.signal.aborted) return clear();
-    const r = await askRestNote({ state: latest.current, feedback, record, today, sessions, sets, settings, now: Date.now(), signal: ac.signal });
+    const r = await askRestNote({ state: latest.current, feedback, record, today, sessions, sets, settings, now: Date.now(), signal: ac.signal, hr: hrForClaude });
     if (aborts.current.get(step.id) === ac) aborts.current.delete(step.id);
     clear();
     if (r.ok && !ac.signal.aborted) {

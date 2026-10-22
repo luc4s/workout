@@ -847,6 +847,16 @@ textarea.input {
   color: var(--critical);
 }
 
+/* ---------- heart rate ---------- */
+
+.zone-bar {
+  display: flex;
+  height: 12px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+
 /* ---------- lists ---------- */
 
 .list {

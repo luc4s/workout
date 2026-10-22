@@ -10,6 +10,11 @@ import { nextWorkStep, type RestStep, type WorkStep } from '../../logic/steps';
 import { exerciseForStep, loadFor, targetFor } from './WorkView';
 import { RestPauseSwitch } from './RestPauseSwitch';
 import { CoachNote } from './CoachNote';
+import { RestHr, restHrState } from '../hr/RestHr';
+import { useStrap } from '../../hr/useHeartRate';
+import { hrMaxOf } from '../../hr/metrics';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db, DEFAULT_SETTINGS, type Settings } from '../../db/db';
 
 function prevWorkStep(state: RunnerState): WorkStep | undefined {
   for (let i = state.index - 1; i >= 0; i--) {
@@ -33,6 +38,12 @@ export function RestView(props: { state: RunnerState; step: RestStep; dispatch: 
     }
   }, [overtime]);
 
+  const strapState = useStrap();
+  const settings = { ...DEFAULT_SETTINGS, ...((useLiveQuery(() => db.kv.get('settings'), [])?.value as Partial<Settings> | undefined) ?? {}) };
+  // HR-guided rest: the button turns green once HR is back down, or when the planned rest is over.
+  const guided = !!settings.hrGuidedRest && strapState.status === 'on' && strapState.bpm !== undefined;
+  const hrReady = guided && restHrState(state, strapState.bpm, hrMaxOf(settings)).ready;
+  const go = overtime || hrReady;
   const next = nextWorkStep(state.steps, state.index);
   const prev = prevWorkStep(state);
   const note = prev ? state.coach?.notes?.[prev.id] : undefined;
@@ -56,9 +67,11 @@ export function RestView(props: { state: RunnerState; step: RestStep; dispatch: 
             +15 s
           </button>
         </div>
-        <button className={`btn huge block ${overtime ? 'primary' : ''}`} onClick={() => dispatch({ type: 'next', now: Date.now() })}>
-          <IconSkip width={26} height={26} /> {overtime ? 'Start next set' : 'Skip rest'}
+        <button className={`btn huge block ${go ? 'primary' : ''}`} onClick={() => dispatch({ type: 'next', now: Date.now() })}>
+          <IconSkip width={26} height={26} /> {go ? 'Start next set' : 'Skip rest'}
         </button>
+        <RestHr state={state} />
+        {guided && !go && <div className="faint" style={{ fontSize: 13 }}>HR-guided: green once HR ≤ {Math.round(hrMaxOf(settings) * 0.65)} bpm</div>}
       </section>
 
       {next && next.kind === 'work' && (
