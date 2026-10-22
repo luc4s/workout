@@ -1,4 +1,4 @@
-import type { Prescription, SessionTemplate, TemplateId, Variation } from './types';
+import type { IntervalPhase, Prescription, SessionTemplate, SessionVariant, TemplateId, Variation } from './types';
 
 const PUSHUP_VARIATIONS: Variation[] = [
   { id: 'incline', name: 'Incline push-up', exerciseId: 'pushup' },
@@ -367,18 +367,106 @@ export const TEMPLATES: SessionTemplate[] = [
   },
   {
     id: 'row',
-    name: 'Rowing HIIT',
+    name: 'Rowing',
     shortName: 'Rowing',
-    subtitle: '20–25 min · keep ~48 h before Session A',
-    targetMin: 25,
-    rirLabel: 'Hard = just sustainable',
-    intro: 'Legs → hips → arms on every stroke; low back neutral. If Monday pull-ups dip: move to Saturday or start Session A with dips.',
+    subtitle: '30 or 60 min · hard ones ≥ 48 h before Session A',
+    targetMin: 30,
+    rirLabel: 'HR and RPE over pace',
+    intro: 'Legs → hips → arms on every stroke; low back neutral. Damper 3–5. Pace targets are approximate — heart rate and effort decide.',
     defaultDay: 0,
     variants: [
+      {
+        id: 'fat-loss-30',
+        name: 'Fat loss 30 · tempo',
+        description: '4 × 5 min tempo at 80–85 % HRmax with 1 min easy between. Same pace on all four — if the 4th collapses, the start was too fast.',
+        targetMin: 30,
+        hard: true,
+        blocks: [
+          {
+            kind: 'interval',
+            title: 'Fat loss 30 min — tempo intervals',
+            exerciseId: 'rowing-stroke',
+            phases: [
+              { label: 'Warm-up', durationSec: 300, intensity: 'easy', kind: 'warmup', spm: [18, 20], hrPct: [55, 70], rpe: 3, hint: 'Build gradually from Z1 to Z2.' },
+              ...repeat(4, 'Tempo', { durationSec: 300, intensity: 'hard', kind: 'work', spm: [22, 24], hrPct: [80, 85], rpe: [6, 7], paceOffset2k: [12, 18] }, { durationSec: 60, intensity: 'easy', kind: 'recovery', spm: [18, 20], hrPct: [0, 75], rpe: 3 }),
+              { label: 'Cool-down', durationSec: 120, intensity: 'easy', kind: 'cooldown', spm: 18, hrPct: [0, 64], rpe: 2 },
+            ],
+          },
+        ],
+      },
+      {
+        id: 'fat-loss-60',
+        name: 'Fat loss 60 · Z2',
+        description: '3 × 15 min endurance at 65–75 % HRmax (biggest calorie total, easy recovery). Optional finish: the last 8 min at 76–80 %.',
+        targetMin: 60,
+        hard: false,
+        blocks: [
+          {
+            kind: 'interval',
+            title: 'Fat loss 60 min — Z2 endurance',
+            exerciseId: 'rowing-stroke',
+            phases: [
+              { label: 'Warm-up', durationSec: 480, intensity: 'easy', kind: 'warmup', spm: [18, 20], hrPct: [55, 70], rpe: 3, hint: 'Build gradually from Z1 to Z2.' },
+              { label: 'Block 1', durationSec: 900, intensity: 'steady', kind: 'steady', spm: 20, hrPct: [65, 75], rpe: 4, paceOffset2k: [20, 30] },
+              { label: 'Block 2', durationSec: 900, intensity: 'steady', kind: 'steady', spm: 22, hrPct: [65, 75], rpe: 4, paceOffset2k: [20, 30], hint: 'Higher rate, less force per stroke.' },
+              { label: 'Block 3', durationSec: 420, intensity: 'steady', kind: 'steady', spm: 20, hrPct: [65, 75], rpe: 4, paceOffset2k: [20, 30] },
+              { label: 'Block 3 · finish (optional)', durationSec: 480, intensity: 'steady', kind: 'steady', spm: 20, hrPct: [76, 80], rpe: 5, paceOffset2k: [20, 30], hint: 'Optional: lift to 76–80 %, or stay in Z2 if tired.' },
+              { label: 'Cool-down', durationSec: 420, intensity: 'easy', kind: 'cooldown', spm: 18, hrPct: [0, 64], rpe: 2 },
+            ],
+          },
+        ],
+      },
+      {
+        id: 'vo2max-30',
+        name: 'VO2max 30 · 4 × 4',
+        description: '4 × 4 min at 90–95 % HRmax with 2 min easy between (Norwegian 4 × 4). HR lags ~1:30–2:00 per interval: go by feel, HR confirms. Finish the 4th spent but at the same pace as the 1st.',
+        targetMin: 30,
+        hard: true,
+        references: ['Helgerud et al. (2007), Med Sci Sports Exerc — 4 × 4 at 90–95 % HRmax beats continuous endurance for VO2max.'],
+        blocks: [
+          {
+            kind: 'interval',
+            title: 'VO2max 30 min — 4 × 4',
+            exerciseId: 'rowing-stroke',
+            phases: [
+              { label: 'Warm-up', durationSec: 180, intensity: 'easy', kind: 'warmup', spm: [18, 20], hrPct: [55, 70], rpe: 3 },
+              ...repeat(2, 'Accel', { durationSec: 15, intensity: 'hard', kind: 'accel', spm: [24, 28], rpe: 5, hint: 'Interval pace for 15 s.' }, { durationSec: 45, intensity: 'easy', kind: 'recovery', spm: [18, 20], rpe: 3 }, false),
+              ...repeat(4, 'VO2max', { durationSec: 240, intensity: 'hard', kind: 'work', spm: [26, 30], hrPct: [90, 95], rpe: [8, 9], paceOffset2k: [2, 4], hrLagSec: 90 }, { durationSec: 120, intensity: 'easy', kind: 'recovery', spm: [18, 20], hrPct: [0, 75], rpe: 3 }),
+              { label: 'Cool-down', durationSec: 180, intensity: 'easy', kind: 'cooldown', spm: 18, hrPct: [0, 64], rpe: 2 },
+            ],
+          },
+        ],
+      },
+      {
+        id: 'vo2max-60',
+        name: 'VO2max 60 · 4 × 8',
+        description: '4 × 8 min at 87–92 % HRmax with 2 min easy between, after a tempo climb and three accelerations. Long cool-down.',
+        targetMin: 60,
+        hard: true,
+        references: ['Seiler et al. (2013), Scand J Med Sci Sports — 4 × 8 ≥ 4 × 4 and 4 × 16 in recreational athletes.'],
+        blocks: [
+          {
+            kind: 'interval',
+            title: 'VO2max 60 min — 4 × 8',
+            exerciseId: 'rowing-stroke',
+            phases: [
+              { label: 'Warm-up', durationSec: 360, intensity: 'easy', kind: 'warmup', spm: [18, 20], hrPct: [55, 70], rpe: 3 },
+              { label: 'Tempo climb', durationSec: 180, intensity: 'steady', kind: 'warmup', spm: [22, 24], hrPct: [76, 82], rpe: [5, 6], paceOffset2k: [12, 18] },
+              ...repeat(3, 'Accel', { durationSec: 20, intensity: 'hard', kind: 'accel', spm: [24, 28], rpe: 6, hint: 'Fast for 20 s.' }, { durationSec: 40, intensity: 'easy', kind: 'recovery', spm: [18, 20], rpe: 3 }, false),
+              ...repeat(4, 'VO2max', { durationSec: 480, intensity: 'hard', kind: 'work', spm: [26, 28], hrPct: [87, 92], rpe: 8, paceOffset2k: [6, 10], hrLagSec: 90 }, { durationSec: 120, intensity: 'easy', kind: 'recovery', spm: [18, 20], hrPct: [0, 75], rpe: 3 }),
+              { label: 'Cool-down', durationSec: 600, intensity: 'easy', kind: 'cooldown', spm: [18, 20], hrPct: [0, 75], rpe: [2, 3] },
+            ],
+          },
+        ],
+      },
+      // Legacy variants: stored sessions and a saved runner may still reference them.
       {
         id: '4x4',
         name: 'Main: 4 × 4',
         description: '4 × 3 min hard, 2 min easy between. Hard = just sustainable for 3 min.',
+        targetMin: 25,
+        hard: true,
+        hidden: true,
         blocks: [
           {
             kind: 'interval',
@@ -396,6 +484,9 @@ export const TEMPLATES: SessionTemplate[] = [
         id: '8x1',
         name: 'Tired week: 8 × 1',
         description: '8 × 1 min hard, 1 min easy between. Same envelope, easier to start.',
+        targetMin: 25,
+        hard: true,
+        hidden: true,
         blocks: [
           {
             kind: 'interval',
@@ -413,6 +504,9 @@ export const TEMPLATES: SessionTemplate[] = [
         id: 'steady',
         name: 'Deload: 20 min steady',
         description: 'Every 3rd–4th week. Conversational pace — intensity deload.',
+        targetMin: 20,
+        hard: false,
+        hidden: true,
         blocks: [
           {
             kind: 'interval',
@@ -425,6 +519,16 @@ export const TEMPLATES: SessionTemplate[] = [
     ],
   },
 ];
+
+/** `count` work phases with a recovery between them (and after the last one unless `skipLastRecovery`). */
+function repeat(count: number, label: string, work: Omit<IntervalPhase, 'label'>, recovery: Omit<IntervalPhase, 'label'>, skipLastRecovery = true): IntervalPhase[] {
+  const phases: IntervalPhase[] = [];
+  for (let i = 1; i <= count; i++) {
+    phases.push({ label: `${label} ${i}/${count}`, ...work });
+    if (i < count || !skipLastRecovery) phases.push({ label: 'Recovery', ...recovery });
+  }
+  return phases;
+}
 
 function intervals(count: number, hardSec: number, easySec: number) {
   const phases = [];
@@ -443,6 +547,22 @@ export function getTemplate(id: TemplateId): SessionTemplate {
 
 export function getVariant(template: SessionTemplate, variantId?: string) {
   return template.variants.find((v) => v.id === variantId) ?? template.variants[0];
+}
+
+/** Variants offered on the setup screen (legacy ones are kept only to resolve stored sessions). */
+export function visibleVariants(template: SessionTemplate): SessionVariant[] {
+  return template.variants.filter((v) => !v.hidden);
+}
+
+/** Target length in minutes: the variant's own when it has one, else the template's. */
+export function targetMinOf(template: SessionTemplate, variantId?: string): number {
+  return getVariant(template, variantId).targetMin ?? template.targetMin;
+}
+
+/** A rowing variant that counts as a hard day (VO2max / tempo). Unknown ids count as hard. */
+export function isHardRowing(variantId?: string): boolean {
+  const v = getTemplate('row').variants.find((x) => x.id === variantId);
+  return v ? v.hard !== false : true;
 }
 
 /** The rest-pause finisher options of a session (first is the default), or none. */

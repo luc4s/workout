@@ -20,6 +20,87 @@ export interface SessionCoachData {
   notes?: Record<string, CoachStepNote>;
 }
 
+/* ---------- heart rate (Polar H10 or any BLE heart-rate strap) ---------- */
+
+/** Per-session HR summary, computed when the session ends (src/hr/metrics.ts). */
+export interface HrSummary {
+  avg: number;
+  max: number;
+  min: number;
+  /** Seconds in zones 1–5 (see `ZONE_BOUNDS` in `src/hr/metrics.ts`; computed with the bounds in force when the session ended). */
+  zonesSec: number[];
+  /** Banister TRIMP (HR reserve) when resting HR is known, else Edwards zone TRIMP. */
+  trimp?: number;
+  trimpMethod?: 'banister' | 'edwards';
+  /** Keytel HR-based estimate; only an estimate for strength work. */
+  kcal?: number;
+  /** Mean 60 s heart-rate recovery after sets (bpm). */
+  recoveryMean?: number;
+  samples: number;
+  /** Share of the session with a valid sample (0–1). */
+  coverage: number;
+  hrMax: number;
+  hrRest?: number;
+}
+
+/** Pre-session readiness check: 60 s seated, resting HR and HRV (RMSSD from RR intervals). */
+export interface Readiness {
+  at: number;
+  restingHr: number;
+  rmssd: number;
+  lnRmssd: number;
+  score: 'go' | 'caution' | 'rest';
+  reason: string;
+  baseline?: { n: number; lnRmssd: number; lnRmssdSd: number; restingHr: number; restingHrSd: number };
+}
+
+/** Per-session rower summary, computed when the session ends (src/logic/rowing.ts). */
+export interface RowerSummary {
+  distanceM: number;
+  strokes?: number;
+  /** Mean pace over the samples that had one, seconds per 500 m. */
+  avgPaceSec?: number;
+  avgSpm?: number;
+  avgWatts?: number;
+  maxWatts?: number;
+  kcal?: number;
+  samples: number;
+  coverage: number;
+}
+
+/** Recording from a Bluetooth (FTMS) rowing machine, one sample per second (-1 where the console sent nothing). */
+export interface SessionRower {
+  startedAt: number;
+  deviceName?: string;
+  spm: number[];
+  paceSec: number[];
+  watts: number[];
+  /** Cumulative distance reported by the console, metres. */
+  distanceM: number[];
+  strokes?: number;
+  summary?: RowerSummary;
+}
+
+export interface SessionHr {
+  /** Timestamp of bpm[0]; one sample per second, -1 where the strap had no reading. */
+  startedAt: number;
+  bpm: number[];
+  /** RR intervals in ms, artifact-filtered, in order (not aligned to bpm). */
+  rr?: number[];
+  summary?: HrSummary;
+  readiness?: Readiness;
+  deviceName?: string;
+}
+
+export interface SetHr {
+  start?: number;
+  end?: number;
+  max?: number;
+  mean?: number;
+  /** HR drop 60 s after the set ended (bpm). */
+  recovery60?: number;
+}
+
 export interface SessionFlags {
   badDay: boolean;
   deload: boolean;
@@ -34,9 +115,13 @@ export interface SessionRecord {
   endedAt?: number;
   flags: SessionFlags;
   notes?: string;
-  /** Distance / split for rowing sessions. */
-  rowing?: { distanceM?: number; avgSplit?: string };
+  /** Distance / split for rowing sessions; `phaseStartedAt` is when the interval timer started (for per-phase HR). */
+  rowing?: { distanceM?: number; avgSplit?: string; phaseStartedAt?: number };
   coach?: SessionCoachData;
+  /** Heart-rate recording, when a strap was connected. */
+  hr?: SessionHr;
+  /** Rowing-machine recording, when a console was connected. */
+  rower?: SessionRower;
 }
 
 export interface SetRecord {
@@ -60,6 +145,7 @@ export interface SetRecord {
   completedAt: number;
   badDay?: boolean;
   deload?: boolean;
+  hr?: SetHr;
 }
 
 export interface Settings {
@@ -75,6 +161,25 @@ export interface Settings {
   restScale: number;
   /** Smallest weight jump available (kg); used for steppers and load progression. */
   loadStep: number;
+  /* Heart-rate strap profile (all optional). */
+  birthYear?: number;
+  sex?: 'male' | 'female';
+  /** Max HR: measured (highest seen while wearing the strap) or set by hand; else estimated from age. */
+  hrMax?: number;
+  /** Resting HR: from the readiness checks, or set by hand. */
+  hrRest?: number;
+  /** 60 s seated readiness check before the warm-up when the strap is on (default on). */
+  readinessCheck?: boolean;
+  /** Rest timer turns green only once HR has come down (default off). */
+  hrGuidedRest?: boolean;
+  /** Name of the strap last paired, to reconnect without the picker. */
+  strapName?: string;
+  /** 2000 m test pace, seconds per 500 m; gives the rowing workouts their pace targets. */
+  pace2kSec?: number;
+  /** Name of the rowing-machine console last paired, to reconnect without the picker. */
+  rowerName?: string;
+  /** Start the interval timer on the first stroke when the console is connected (default on). */
+  rowerAutoStart?: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {

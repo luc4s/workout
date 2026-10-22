@@ -2,12 +2,12 @@ import 'fake-indexeddb/auto';
 import { describe, expect, it, vi } from 'vitest';
 import { getTemplate, PRESCRIPTIONS } from '../data/program';
 import { db, DEFAULT_SETTINGS, type SessionRecord, type SetRecord } from '../db/db';
-import { recommendSession, sessionReview } from '../logic/coach';
-import { askBrief, askReview, pingCoach } from './ask';
+import { recommendSession, sessionReview, trainingStats } from '../logic/coach';
+import { askAnalysis, askBrief, askReview, pingCoach } from './ask';
 import { callCoach, costOf, FALLBACK_MODEL, modelLabel, PRIMARY_MODEL } from './client';
-import { buildBriefContext, recentSessions } from './context';
+import { buildAnalysisContext, buildBriefContext, recentSessions } from './context';
 import { SYSTEM_PROMPT } from './prompts';
-import { BRIEF_SCHEMA, parseRestNote, REST_NOTE_SCHEMA, sanitizeSuggestions } from './schema';
+import { ANALYSIS_SCHEMA, BRIEF_SCHEMA, parseAnalysis, parseRestNote, REST_NOTE_SCHEMA, sanitizeSuggestions } from './schema';
 import { getCoachConfig } from './store';
 
 type Body = Record<string, unknown>;
@@ -218,7 +218,7 @@ describe('schema guards', () => {
   it('rest notes are clamped', () => {
     const long = 'x'.repeat(500);
     const n = parseRestNote({ note: long, cue: long, suggestion: { kind: 'bad-day', slot: '', value: '', reason: 'r' } }, slots)!;
-    expect(n.note).toHaveLength(200);
+    expect(n.note).toHaveLength(400);
     expect(n.cue).toHaveLength(60);
     expect(n.suggestion?.kind).toBe('bad-day');
     expect(parseRestNote({ cue: 'x' }, slots)).toBeUndefined();
@@ -236,6 +236,19 @@ describe('schema guards', () => {
     };
     walk(BRIEF_SCHEMA);
     walk(REST_NOTE_SCHEMA);
+    walk(ANALYSIS_SCHEMA);
+  });
+
+  it('analysis answers are validated and clamped', () => {
+    const a = parseAnalysis(
+      { headline: 'H', summary: 'S', trends: [{ slot: 'A.dip', trend: 'UP', note: 'n' }, { slot: 'nope', trend: 'up', note: 'x' }], strengths: ['a', 'b', 'c', 'd'], concerns: [], recommendations: 'nope', suggestions: [{ kind: 'switch-session', slot: '', value: 'micro', reason: 'r' }] },
+      ['A.dip'],
+    )!;
+    expect(a.trends).toEqual([{ slot: 'A.dip', trend: 'up', note: 'n' }]);
+    expect(a.strengths).toHaveLength(3);
+    expect(a.recommendations).toEqual([]);
+    expect(a.suggestions[0]).toEqual({ kind: 'switch-session', value: 'micro', reason: 'r' });
+    expect(parseAnalysis({ headline: 'H' }, [])).toBeUndefined();
   });
 });
 
@@ -248,11 +261,12 @@ describe('context and prompt', () => {
     const s: SessionRecord = { id: i + 1, templateId: i % 2 ? 'B' : 'A', variantId: 'standard', startedAt: monday - (10 - i) * 3 * DAY, endedAt: monday - (10 - i) * 3 * DAY + 50 * 60_000, flags: { badDay: false, deload: false, finisher: true } };
     sessions.push(s);
     const slots = Object.values(PRESCRIPTIONS).filter((p) => p.key.startsWith(`${s.templateId}.`) && !p.key.includes('.rp-'));
-    for (const p of slots) {
+    slots.forEach((p, si) => {
       for (let n = 1; n <= 3; n++) {
-        sets.push({ id: `${s.id}:${p.key}#${n}`, sessionId: s.id!, templateId: s.templateId, slot: p.key, exerciseId: p.exerciseId, setNumber: n, reps: 7, rir: 1, durationSec: 30, completedAt: s.startedAt + n * 120_000, variationId: p.defaultVariation, loadKg: p.loadable ? 10 : undefined });
+        // Sets 2 min apart, slots one after another, 30 s of work each → 90 s of rest between sets.
+        sets.push({ id: `${s.id}:${p.key}#${n}`, sessionId: s.id!, templateId: s.templateId, slot: p.key, exerciseId: p.exerciseId, setNumber: n, reps: 7, rir: 1, durationSec: 30, completedAt: s.startedAt + (si * 3 + n) * 120_000, variationId: p.defaultVariation, loadKg: p.loadable ? 10 : undefined });
       }
-    }
+    });
   }
 
   it('the brief context stays small and carries the rule verdict', () => {
@@ -274,6 +288,28 @@ describe('context and prompt', () => {
     expect(SYSTEM_PROMPT).not.toMatch(/20\d\d-\d\d/);
     expect(SYSTEM_PROMPT).toContain(getTemplate('B').name);
     expect(SYSTEM_PROMPT.length).toBeGreaterThan(2000);
+  });
+
+  it('the analysis context carries the whole history and the stats, within bounds', async () => {
+    const stats = trainingStats(sessions, sets, DEFAULT_SETTINGS, monday);
+    const ctx = buildAnalysisContext({ stats, sessions, sets, settings: DEFAULT_SETTINGS, now: monday });
+    expect(ctx.history).toHaveLength(10);
+    const first = ctx.history[0];
+    expect(first.sets.length).toBeGreaterThan(10);
+    expect(first.sets[0]).toMatchObject({ n: 1, reps: 7, rir: 1, setSec: 30 });
+    expect(first.sets[1].restSec).toBe(90);
+    expect(first.sets[0].at).toMatch(/^\d\d:\d\d$/);
+    expect(first.min).toBe(50);
+    expect((ctx.rules as { slots: { weeklyVolumeLast12: number[]; prs: unknown[] }[] }).slots[0].weeklyVolumeLast12).toHaveLength(12);
+    expect((ctx.rules as { startHourHistogram: number[] }).startHourHistogram).toHaveLength(24);
+    expect(JSON.stringify(ctx).length).toBeLessThan(60_000);
+    expect(JSON.stringify(ctx).length).toBeGreaterThan(10_000);
+    const answer = { headline: 'H', summary: 'S', trends: [], strengths: [], concerns: [], recommendations: ['Do more'], suggestions: [] };
+    const f = fakeFetch([() => reply(200, message(JSON.stringify(answer)))]);
+    const r = await askAnalysis({ stats, sessions, sets, settings: DEFAULT_SETTINGS, now: monday }, deps(f.fn));
+    expect(r.ok && r.data.recommendations).toEqual(['Do more']);
+    expect(String((f.calls[0].body.messages as Body[])[0].content)).toMatch(/^Analyse/);
+    expect(f.calls[0].body.max_tokens).toBe(5000);
   });
 
   it('askBrief / askReview send the matching prompt and parse the answer', async () => {

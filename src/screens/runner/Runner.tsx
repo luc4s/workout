@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { getTemplate } from '../../data/program';
-import { getRunner, saveRunner } from '../../db/db';
+import { getTemplate, targetMinOf } from '../../data/program';
+import { getRunner, getSettings, saveRunner } from '../../db/db';
 import { Sheet } from '../../components/controls';
 import { IconClose, IconNext, IconPause, IconPlay, IconPrev } from '../../components/icons';
 import { formatClock, useNow } from '../../hooks/useNow';
@@ -14,12 +14,19 @@ import { WarmupView } from './WarmupView';
 import { IntervalView } from './IntervalView';
 import { StepList } from './StepList';
 import { useCoachNotes } from './useCoachNotes';
+import { recorder } from '../../hr/recorder';
+import { strap } from '../../hr/ble';
+import { HrBadge } from '../hr/HrBadge';
+import { RowerBadge } from '../rower/RowerBadge';
+import { rower } from '../../rower/ble';
+import { rowerRecorder } from '../../rower/recorder';
 import './runner.css';
 
 export default function Runner() {
   const [loaded, setLoaded] = useState<RunnerState | null | undefined>(undefined);
   useEffect(() => {
-    getRunner().then((r) => setLoaded(r ?? null));
+    // A runner saved with an out-of-range index (older releases could drop the current step) is clamped.
+    getRunner().then((r) => setLoaded(r ? { ...r, index: Math.max(0, Math.min(r.steps.length - 1, r.index)) } : null));
   }, []);
   if (loaded === undefined) return null;
   if (loaded === null) return <Navigate to="/" replace />;
@@ -41,7 +48,17 @@ function RunnerInner({ initial }: { initial: RunnerState }) {
   }, [state]);
 
   const dispatch = useCallback((a: RunnerAction) => rawDispatch(a), []);
-  useCoachNotes(state, dispatch);
+  const { pending: coachPending } = useCoachNotes(state, dispatch);
+  // Record the strap (if any) for this session; the recorder keeps going when this screen is left.
+  // After a reload the strap is reconnected silently when the browser already knows it.
+  useEffect(() => {
+    recorder.start(state.sessionId);
+    if (state.templateId === 'row') rowerRecorder.start(state.sessionId);
+    getSettings().then((s) => {
+      if (s.strapName) strap.autoConnect(s.strapName);
+      if (state.templateId === 'row' && s.rowerName) rower.autoConnect(s.rowerName);
+    });
+  }, [state.sessionId, state.templateId]);
 
   const finish = useCallback(
     async (extra?: Parameters<typeof finishSession>[1]) => {
@@ -61,7 +78,8 @@ function RunnerInner({ initial }: { initial: RunnerState }) {
   const step = state.steps[state.index];
   const isLast = state.index === state.steps.length - 1;
   const elapsedMin = sessionElapsedMs(state, now) / 60000;
-  const over = elapsedMin > template.targetMin;
+  const targetMin = targetMinOf(template, state.variantId);
+  const over = elapsedMin > targetMin;
   const paused = state.pausedAt !== undefined;
   const doneCount = Object.keys(state.done).length;
   const workCount = state.steps.filter((s) => s.kind === 'work').length;
@@ -76,7 +94,7 @@ function RunnerInner({ initial }: { initial: RunnerState }) {
           <div className="name">{template.name}</div>
           <div className="meta num">
             <span className={over ? 'over' : ''}>
-              {formatClock(sessionElapsedMs(state, now) / 1000)} / {template.targetMin}:00
+              {formatClock(sessionElapsedMs(state, now) / 1000)} / {targetMin}:00
             </span>
             {workCount > 0 && (
               <span>
@@ -87,6 +105,8 @@ function RunnerInner({ initial }: { initial: RunnerState }) {
             {wake === 'active' && <span className="faint"> · screen on</span>}
           </div>
         </div>
+        <HrBadge />
+        {state.templateId === 'row' && <RowerBadge />}
         <button className="progress-track" onClick={() => setListOpen(true)} aria-label="All steps">
           <span style={{ width: `${((state.index + 1) / state.steps.length) * 100}%` }} />
         </button>
@@ -111,7 +131,7 @@ function RunnerInner({ initial }: { initial: RunnerState }) {
       </header>
 
       {over && step.kind !== 'interval' && (
-        <div className="runner-banner">Past {template.targetMin} min — tighten transitions or drop the finisher, never the primary strength work.</div>
+        <div className="runner-banner">Past {targetMin} min — tighten transitions or drop the finisher, never the primary strength work.</div>
       )}
       {paused && (
         <button className="runner-banner paused-banner" onClick={() => dispatch({ type: 'resume', now: Date.now() })}>
@@ -121,7 +141,7 @@ function RunnerInner({ initial }: { initial: RunnerState }) {
 
       <div className="runner-body" key={step.id}>
         {step.kind === 'work' && <WorkView state={state} step={step} dispatch={dispatch} now={now} isLast={isLast} onFinish={finish} />}
-        {step.kind === 'rest' && <RestView state={state} step={step} dispatch={dispatch} now={now} />}
+        {step.kind === 'rest' && <RestView state={state} step={step} dispatch={dispatch} now={now} coachPending={coachPending} />}
         {step.kind === 'warmup' && <WarmupView state={state} step={step} dispatch={dispatch} now={now} isLast={isLast} />}
         {step.kind === 'interval' && <IntervalView state={state} step={step} dispatch={dispatch} now={now} onFinish={finish} />}
       </div>

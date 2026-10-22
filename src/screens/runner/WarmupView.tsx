@@ -4,6 +4,7 @@ import { TimerRing } from '../../components/TimerRing';
 import { formatClock } from '../../hooks/useNow';
 import { restRemainingSec, type RunnerAction, type RunnerState } from '../../logic/runner';
 import type { WarmupStep } from '../../logic/steps';
+import { ReadinessCheck } from '../hr/ReadinessCheck';
 
 export function WarmupView(props: { state: RunnerState; step: WarmupStep; dispatch: (a: RunnerAction) => void; now: number; isLast: boolean }) {
   const { state, step, dispatch, now } = props;
@@ -20,6 +21,7 @@ export function WarmupView(props: { state: RunnerState; step: WarmupStep; dispat
             <div className="muted">~{Math.round(step.durationSec / 60)} min warm-up</div>
           </div>
         </TimerRing>
+        <ReadinessCheck state={state} dispatch={dispatch} />
         <div className="warm-anim">
           <AnimPlayer exerciseId="joint-circles" />
         </div>

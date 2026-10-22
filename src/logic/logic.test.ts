@@ -1,11 +1,12 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'vitest';
-import { getTemplate, PRESCRIPTIONS, restPauseOptions } from '../data/program';
+import { getTemplate, isHardRowing, PRESCRIPTIONS, restPauseOptions, targetMinOf, visibleVariants } from '../data/program';
 import { DEFAULT_SETTINGS, db, type SessionRecord, type SetRecord, type Settings } from '../db/db';
 import { exportBackup, importBackup } from '../db/backup';
 import { applyStage, detectStall, suggest, suggestRestPause, type SlotSession } from './progression';
 import { createRunner, intervalPosition, restRemainingSec, runnerReducer, sessionElapsedMs } from './runner';
 import { suggestNext, warningsFor } from './schedule';
+import { isWorkPhase } from './rowing';
 import { lastRestPauseSlot, prepareSession } from './session';
 import { buildSteps, dropRemainingSets, estimateDurationSec, estimateWorkSec, type Step, type WorkStep } from './steps';
 
@@ -59,9 +60,32 @@ describe('buildSteps', () => {
       const [s] = buildSteps(row, v, OPTS);
       return s.kind === 'interval' ? s.phases.reduce((a, p) => a + p.durationSec, 0) / 60 : 0;
     };
+    const phases = (v: string) => {
+      const [s] = buildSteps(row, v, OPTS);
+      return s.kind === 'interval' ? s.phases : [];
+    };
+    // The four workouts of seances-rameur.md, to the second.
+    expect(total('fat-loss-30')).toBe(30);
+    expect(total('fat-loss-60')).toBe(60);
+    expect(total('vo2max-30')).toBe(30);
+    expect(total('vo2max-60')).toBe(60);
+    expect(phases('fat-loss-30').map((p) => p.label)).toEqual(['Warm-up', 'Tempo 1/4', 'Recovery', 'Tempo 2/4', 'Recovery', 'Tempo 3/4', 'Recovery', 'Tempo 4/4', 'Cool-down']);
+    expect(phases('vo2max-30')).toHaveLength(1 + 4 + 7 + 1);
+    expect(phases('vo2max-60')).toHaveLength(2 + 6 + 7 + 1);
+    expect(phases('fat-loss-60')).toHaveLength(6);
+    expect(phases('vo2max-30').filter(isWorkPhase).map((p) => p.hrPct)).toEqual([[90, 95], [90, 95], [90, 95], [90, 95]]);
+    expect(phases('vo2max-60').filter(isWorkPhase).every((p) => p.durationSec === 480 && p.hrLagSec === 90)).toBe(true);
+    // Legacy ids (stored sessions, a saved runner) still resolve; they are hidden from the setup screen.
     expect(total('4x4')).toBe(25);
     expect(total('8x1')).toBe(22);
     expect(total('steady')).toBe(20);
+    expect(visibleVariants(row).map((v) => v.id)).toEqual(['fat-loss-30', 'fat-loss-60', 'vo2max-30', 'vo2max-60']);
+    expect(targetMinOf(row, 'fat-loss-60')).toBe(60);
+    expect(targetMinOf(row, 'steady')).toBe(20);
+    expect(targetMinOf(row, 'nope')).toBe(30);
+    expect(isHardRowing('fat-loss-60')).toBe(false);
+    expect(isHardRowing('vo2max-60')).toBe(true);
+    expect(isHardRowing(undefined)).toBe(true);
   });
 
   it('pull-up roadmap stage changes Session A pull-up sets', () => {
@@ -353,6 +377,22 @@ describe('schedule', () => {
     expect(warningsFor('B', [session('A', monday)], monday + DAY)[0]).toMatch(/back-to-back/);
     expect(warningsFor('B', [session('A', monday)], monday + 3 * DAY)).toEqual([]);
     expect(warningsFor('A', [session('row', monday - DAY)], monday)[0]).toMatch(/48 h/);
+    // Only hard rowing worries Session A; the Z2 session is fine the day before.
+    expect(warningsFor('A', [{ ...session('row', monday - DAY), variantId: 'fat-loss-60' }], monday)).toEqual([]);
+    expect(warningsFor('A', [{ ...session('row', monday - DAY), variantId: 'vo2max-30' }], monday)[0]).toMatch(/Hard rowing/);
+  });
+
+  it('rowing warnings depend on the workout: hard ones before A or twice a week, never the Z2 session', () => {
+    const sunday = monday + 5 * DAY + 12 * 3600_000; // Sunday 06:00: next Monday in 18 h, no A this week
+    expect(warningsFor('row', [], sunday, 'vo2max-30')[0]).toMatch(/Session A is coming up/);
+    expect(warningsFor('row', [], sunday, 'fat-loss-30')[0]).toMatch(/Session A is coming up/);
+    expect(warningsFor('row', [], sunday, 'fat-loss-60')).toEqual([]);
+    const twoHard = [session('A', monday), { ...session('row', monday + DAY), variantId: 'vo2max-30' }, { ...session('row', monday + 3 * DAY), variantId: 'fat-loss-30' }];
+    expect(warningsFor('row', twoHard, monday + 5 * DAY, 'vo2max-60')[0]).toMatch(/Already 2 hard rowing/);
+    expect(warningsFor('row', twoHard, monday + 5 * DAY, 'fat-loss-60')).toEqual([]);
+    const oneHardYesterday = [session('A', monday), { ...session('row', monday + 3 * DAY), variantId: 'vo2max-30' }];
+    expect(warningsFor('row', oneHardYesterday, monday + 4 * DAY, 'fat-loss-30')[0]).toMatch(/less than 48 h ago/);
+    expect(warningsFor('row', oneHardYesterday, monday + 4 * DAY, 'fat-loss-60')).toEqual([]);
   });
 });
 
@@ -368,6 +408,33 @@ describe('backup', () => {
     expect(res).toEqual({ sessions: 1, sets: 1 });
     expect((await db.sets.get('7:A.dip#1'))?.reps).toBe(6);
     await expect(importBackup({ app: 'nope' })).rejects.toThrow();
+  });
+
+  it('heart-rate data rides inside sessions and sets and round-trips through a backup', async () => {
+    const hr = { startedAt: 10, bpm: [120, 121, -1, 125], rr: [500, 510], summary: { avg: 122, max: 125, min: 120, zonesSec: [0, 0, 4, 0, 0], samples: 3, coverage: 0.75, hrMax: 185 } };
+    await db.sessions.put({ id: 8, templateId: 'B', variantId: 'standard', startedAt: 1, endedAt: 2, flags: { badDay: false, deload: false, finisher: false }, hr });
+    await db.sets.put({ id: '8:B.pushup#1', sessionId: 8, templateId: 'B', slot: 'B.pushup', exerciseId: 'pushup', setNumber: 1, reps: 10, completedAt: 2, hr: { mean: 140, max: 150, end: 148, recovery60: 25 } });
+    const file = JSON.parse(JSON.stringify(await exportBackup()));
+    await db.sessions.clear();
+    await db.sets.clear();
+    await importBackup(file);
+    expect((await db.sessions.get(8))?.hr?.summary?.avg).toBe(122);
+    expect((await db.sets.get('8:B.pushup#1'))?.hr?.recovery60).toBe(25);
+    await db.sessions.delete(8);
+    await db.sets.delete('8:B.pushup#1');
+  });
+
+  it('rowing-machine data rides inside the session and round-trips through a backup', async () => {
+    const rower = { startedAt: 10, spm: [22, 23, -1, 24], paceSec: [130, 131, -1, 129], watts: [150, 152, -1, 155], distanceM: [4, 8, -1, 16], strokes: 3, summary: { distanceM: 16, avgPaceSec: 130, avgSpm: 23, avgWatts: 152, maxWatts: 155, samples: 3, coverage: 0.75 } };
+    await db.sessions.put({ id: 9, templateId: 'row', variantId: 'vo2max-30', startedAt: 1, endedAt: 2, flags: { badDay: false, deload: false, finisher: false }, rowing: { distanceM: 16, avgSplit: '2:10', phaseStartedAt: 10 }, rower });
+    const file = JSON.parse(JSON.stringify(await exportBackup()));
+    await db.sessions.clear();
+    await importBackup(file);
+    const back = await db.sessions.get(9);
+    expect(back?.rower?.summary?.avgPaceSec).toBe(130);
+    expect(back?.rower?.spm).toEqual([22, 23, -1, 24]);
+    expect(back?.rowing?.phaseStartedAt).toBe(10);
+    await db.sessions.delete(9);
   });
 
   it('never exports the coach rows and keeps them across an import', async () => {

@@ -102,7 +102,7 @@ export function CoachSettingsCard() {
       </div>
       <div className="faint" style={{ fontSize: 14 }}>
         What is sent: the date, your settings (body weight, pull-up max, roadmap stage, chosen variations and weights), your last sessions (reps, RIR, loads,
-        duration), today's logged sets, and your session notes for the review. Nothing else.
+        duration), today's logged sets, heart-rate summaries when a strap was worn, and your session notes for the review. The training analysis on Today (on demand) sends your whole history in full detail: every set, set and rest times, notes, rowing data. Nothing else.
       </div>
     </div>
   );

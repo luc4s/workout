@@ -99,10 +99,27 @@ export interface RestPauseBlock {
   exercises: Prescription[];
 }
 
+/** A number or an inclusive [min, max] range. */
+export type Span = number | [number, number];
+
 export interface IntervalPhase {
   label: string;
   durationSec: number;
+  /** Colour / timer family: hard = work or acceleration, steady = Z2 / tempo, easy = recovery, warm-up, cool-down. */
   intensity: 'easy' | 'hard' | 'steady';
+  /* Targets from the rowing workouts (all optional: the first variants had none). */
+  kind?: 'warmup' | 'work' | 'recovery' | 'steady' | 'cooldown' | 'accel';
+  /** Stroke rate, strokes per minute. */
+  spm?: Span;
+  /** Heart-rate target, % of HRmax. */
+  hrPct?: [number, number];
+  /** Perceived effort 1–10. */
+  rpe?: Span;
+  /** Seconds per 500 m added to the 2k pace. */
+  paceOffset2k?: [number, number];
+  /** HR reaches its target only after this many seconds: go by feel until then. */
+  hrLagSec?: number;
+  hint?: string;
 }
 
 export interface IntervalBlock {
@@ -121,6 +138,13 @@ export interface SessionVariant {
   name: string;
   description: string;
   blocks: Block[];
+  /** Overrides the template's target length (minutes). */
+  targetMin?: number;
+  /** Counts as a hard rowing day (VO2max / tempo): at most two a week, never the day before Session A. */
+  hard?: boolean;
+  /** Kept only so stored sessions and a saved runner still resolve; not offered any more. */
+  hidden?: boolean;
+  references?: string[];
 }
 
 export interface SessionTemplate {

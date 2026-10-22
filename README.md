@@ -7,13 +7,20 @@ animated technique guides.
 ## Features
 
 - **Session runner** — steps through warm-up → sets → rests for Session A, Session B, the
-  micro session and rowing HIIT. Count-up set timer, rest countdown (±15 s, skip, pulse +
+  micro session and rowing. Count-up set timer, rest countdown (±15 s, skip, pulse +
   vibration at zero), interval timer for rowing, pause, jump to any step, resume after a reload.
   Screen stays awake (Wake Lock).
+- **Rowing** — four workouts (see *Rowing* below): fat loss 30 (tempo intervals), fat loss 60
+  (Z2 endurance), VO2max 30 (4 × 4) and VO2max 60 (4 × 8). Every phase shows its cadence, HR band
+  (% of max and bpm), RPE and pace target; with a strap the live HR is judged against the band,
+  allowing for the HR lag of hard intervals. The coach picks the workout (hard ones alternate, the
+  Z2 session when a hard one is unsafe) and warns when a hard one lands before Session A or would
+  be the third of the week.
 - **Weight checklist** — before each session, lists the weight to prepare for every weighted
   exercise (from your last session plus any suggested increase); adjust it with +/− using your
   weight increment (Settings).
-- **Logging** — reps (per leg for split squats / pistols), added load, RIR, variation.
+- **Logging** — reps (per leg for split squats / pistols), added load, RIR (a required tap: no
+  default, so the number is yours), variation.
   Past sessions can be edited in History, including the variation (for one set or all sets of
   that exercise in the session).
 - **Variations** — every exercise with options (push-up, pistol / archer squat, row, …) has a
@@ -25,7 +32,7 @@ animated technique guides.
 - **Progression** — implements the program rules: double progression (+2.5 kg or next
   variation at the top of the range), +1 rep on the weakest set, the pull-up roadmap stages,
   bad-day and deload modes, stall detection, schedule warnings (no back-to-back full sessions,
-  ~48 h between rowing and Session A). "Last time" always shows the session the targets were
+  ~48 h between hard rowing and Session A). "Last time" always shows the session the targets were
   built from; after a roadmap stage change (e.g. 4 × 5 → 3 × 6–8) targets start at the new minimum.
 - **Rest-pause finisher (Session B)** — rows or pike push-ups, switchable on the setup screen
   and during the session until the first mini-set is logged. The app suggests one (★): the
@@ -36,8 +43,23 @@ animated technique guides.
   session, a daily brief. During a session: a note on every rest (set vs target, RIR, rest taken,
   pace, a cue for the next set) and a bad-day switch when the first sets fall short. After: a
   review (per-exercise verdicts, work / rest / transition time, volume vs last time, RIR
-  calibration, PRs) with next-time suggestions. Suggestions are accepted with one tap; nothing
-  changes otherwise.
+  calibration, PRs) with next-time suggestions. On demand, a Claude analysis of the whole history
+  (trend per exercise, adherence, RIR habits, recommendations). Suggestions are accepted with one
+  tap; nothing changes otherwise.
+- **Heart-rate strap** — pair a Polar H10 (or any Bluetooth strap with the standard heart-rate
+  service) from Settings; Chrome on Android or desktop only (Web Bluetooth). Live HR in the runner,
+  HR at the end of each set and the drop during the rest, optional HR-guided rest, the HR band of
+  every rowing phase, a 60 s readiness check before the warm-up (resting HR + HRV against your own
+  baseline, with a one-tap bad-day switch), and per session: HR chart, average / max, time in zones,
+  training load (TRIMP), an HR-based calorie estimate, mean recovery, all compared with the previous
+  session of the same kind. Progress shows resting HR, HRV, weekly load and recovery trends; the
+  coach and Claude get the same numbers. See *Heart rate* below for what the numbers mean.
+- **Rowing machine** — connect the rower's console over Bluetooth (standard fitness-machine
+  protocol, FTMS) from Settings: live stroke rate, split, power and distance against the phase
+  targets in the runner, the timer starts on the first stroke, the recording is kept with the
+  session (per-block means against the targets, pace chart, split consistency) and the distance /
+  split fields are filled in. A "Scan console" diagnostic lists what a console exposes for the
+  case it does not speak FTMS. See *Rower* below.
 - **Exercise guides** — setup, execution, cues, common mistakes, regressions/progressions and
   sources for every movement, with a 3D animation (glTF) you can rotate — drag, double-tap to
   reset, Side / Front / ¾ presets — and red-highlighted mistake demos. Every pose is checked
@@ -104,6 +126,8 @@ How the runner holds to that, in `src/screens/runner/runner.css`:
   aspect ratio); elsewhere, and in portrait, the stage is 4:3 and width-driven.
 - Timer rings are capped at `42vh` so the buttons under them stay on screen; the `size` prop of
   `TimerRing` is only the SVG geometry and an upper bound.
+- The rest screen is three full-width columns: timer | up next (targets, then the 3D view, which
+  absorbs the leftover height) | coach feedback (scrolls inside its card if it ever overflows).
 - `@media (max-height: 760px) and (orientation: landscape)` tightens the logging panel. The
   case that needs it is the weighted split squat — two rep steppers *plus* a load stepper.
 - Portrait stacks the two columns and goes back to scrolling.
@@ -138,16 +162,102 @@ or on any error the rule layer alone is shown and logging is never blocked.
 What is sent (`src/coach/context.ts`): the date, your settings (body weight, pull-up max, roadmap
 stage, chosen variations and loads, rest scale), the week's coverage, the last 8 completed sessions
 compressed per exercise (variation, load, reps, RIR, duration; 4 sessions for a rest note), the rule
-layer's verdict, today's logged sets, and your session notes for the review. Nothing else. Rough
-cost on Fable 5.1 (thinking tokens are billed as output): ≈ $0.02–0.04 per rest note, ≈ $0.1–0.2
-for a brief or review — about $0.7–1 for a full session; Settings shows the month's usage.
+layer's verdict, today's logged sets, and your session notes for the review. The training analysis
+(Today → *Ask Claude to analyse my training*, never automatic) sends every completed session (up to
+150) in full — every set with reps (left / right), RIR, load, variation, the target it was run
+against, set and rest seconds, clock time, plus session notes, rowing data and the stored review —
+and `trainingStats` (score timeline, weekly volume, PRs, set / rest timing and RIR histogram per
+exercise; sessions per week, adherence, start-hour and weekday distribution, time use).
+Nothing else. Rough cost on Fable 5.1 (thinking tokens are billed as output): ≈ $0.02–0.04 per rest
+note, ≈ $0.1–0.2 for a brief or review — about $0.7–1 for a full session — and ≈ $0.2–0.4 for an
+analysis; Settings shows the month's usage.
+
+## Heart rate
+
+`src/hr/ble.ts` talks to the strap with Web Bluetooth (Heart Rate Measurement 0x2A37: bpm, sensor
+contact, RR intervals; Battery Service for the level). Chrome on Android asks you to pick the strap
+once; afterwards it reconnects on its own. Safari / WebKit (iPad) has no Web Bluetooth, so the strap
+cannot be used there. Recording only runs while the app is on screen (the runner keeps the screen
+awake). `src/hr/recorder.ts` stores one sample per second in `SessionRecord.hr` (so it is backed up)
+and per-set HR on `SetRecord.hr`.
+
+What the numbers are (`src/hr/metrics.ts`):
+- **Zones**: % of max HR, the rowing workouts' table — Z1 recovery ≤ 64, Z2 endurance 65–75, Z3 tempo
+  76–82, Z4 threshold 83–89, Z5 VO2max ≥ 90 (rounded percentage). Max HR is the value in Settings,
+  else the age estimate (Tanaka, 208 − 0.7 × age); the highest 5 s mean ever seen while wearing the
+  strap replaces the estimate. Sessions summarised before this table was adopted keep the minutes
+  computed with the earlier bounds (Z1 50–60 … Z5 90–100).
+- **Load**: Banister TRIMP (HR reserve weighting) once a resting HR is known, Edwards zone TRIMP
+  before that. Weekly load and monotony (mean / SD of daily load) feed the Today card.
+- **Calories**: Keytel 2005 HR formula (needs sex, age, weight). It was fitted on steady cardio, so
+  strength sessions read high — treat it as a comparison between sessions, not a number to eat by.
+- **Recovery**: bpm dropped in the 60 s after a set (5 s means). Slow recovery against your usual
+  shows up in the rest notes and the review.
+- **Readiness**: resting HR (lowest 30 s mean) and RMSSD from RR intervals (artifacts > 20 % removed)
+  in a 60 s seated check, compared with the baseline of your previous checks (needs three). Low HRV
+  or a raised resting HR → caution / run down and a bad-day suggestion. Not a medical tool.
+
+## Rowing
+
+`src/data/program.ts` encodes the four workouts of *Séances rameur — Perte de gras & VO2max*
+(ids `fat-loss-30`, `fat-loss-60`, `vo2max-30`, `vo2max-60`), to the second:
+
+| Workout | Length | Main work | HR | Cadence | RPE | Pace (2k split +) |
+|---|---|---|---|---|---|---|
+| Fat loss 30 · tempo | 30 min | 4 × 5 min, 1 min easy between | 80–85 % | 22–24 | 6–7 | +12–18 s |
+| Fat loss 60 · Z2 | 60 min | 3 × 15 min (last 8 min optionally at 76–80 %) | 65–75 % | 20 / 22 / 20 | 4 | +20–30 s |
+| VO2max 30 · 4 × 4 | 30 min | 4 × 4 min, 2 min easy between, after 2 accelerations | 90–95 % | 26–30 | 8–9 | +2–4 s |
+| VO2max 60 · 4 × 8 | 60 min | 4 × 8 min, 2 min easy between, after a tempo climb and 3 accelerations | 87–92 % | 26–28 | 8 | +6–10 s |
+
+Every phase carries `spm`, `hrPct`, `rpe`, `paceOffset2k` and, on hard intervals, `hrLagSec` (HR
+reaches the band only after ~1:30, so the runner greys the HR verdict until then and the summary
+averages each interval after the lag). Pace targets need your 2k split (Settings → *Heart-rate
+strap* → *2k pace*); without it the phase shows the offset only. HR and RPE always override pace.
+
+Scheduling (`src/logic/schedule.ts`, `coach.ts`): tempo and VO2max are *hard* days — one, at most
+two a week, never the day before Session A; the Z2 session is fine on any day. The coach alternates
+VO2max and tempo, offers the 60 min versions on weekends once the 30 min ones are routine, and
+falls back to the Z2 session on a deload, a poor readiness check, after two hard ones in the week
+or when Session A is next. The previous rowing variants (`4x4`, `8x1`, `steady`) are kept hidden so
+old sessions and backups still resolve; they are not offered any more.
+
+References: Helgerud et al. 2007 (4 × 4 at 90–95 % HRmax for VO2max), Seiler et al. 2013
+(4 × 8 ≥ 4 × 4 in recreational athletes).
+
+## Rower
+
+`src/rower/ble.ts` talks to the console with Web Bluetooth through the Fitness Machine Service
+(0x1826): it subscribes to Rower Data (0x2AD1: stroke rate in ½ spm, stroke count, total distance,
+instantaneous / average pace in s/500 m, power, resistance, energy, HR, elapsed time; every field is
+optional and consoles send subsets) and reads the Fitness Machine Feature bits once. `recorder.ts`
+keeps one sample per second in `SessionRecord.rower` (spm, pace, watts, cumulative distance; backed
+up with the session); `finalizeRower` computes the summary and fills the distance / split fields
+the user left empty. `src/logic/rowing.ts` turns the recording into per-block means and verdicts
+against the workout targets (cadence span, split band from the 2k pace), plus the split-consistency
+check (last work interval more than 3 s/500 m slower than the first = started too fast).
+
+Only the user's console can tell whether it speaks FTMS. Christopeit consoles pair with Kinomap
+(WP 1500, WP 5000 / WRT 2000, WRT 1300, Columbia Pro) and reportedly EXR, but the protocol is not
+documented and one WP 5000 owner saw no FTMS. Settings → *Rowing machine* → **Scan console** picks
+any nearby device and lists the services and characteristics it exposes among a candidate list
+(FTMS, cycling power / cadence, heart rate, device information, Nordic UART, Concept2 PM5, common
+vendor UUIDs); Web Bluetooth cannot list services outside that list, so an unknown vendor UUID can
+still hide. If the report shows no fitness-machine service, that report is the starting point for a
+vendor decoder. Pairing works only while the app is on screen; wake the console first.
 
 ## Code map
 
 - `src/data/program.ts` — the program encoded from the PDF; `exercises.ts` — technique guides; `rules.ts`
 - `src/logic/` — `steps.ts` (session → steps), `runner.ts` (timer state machine), `progression.ts`,
   `schedule.ts`, `session.ts` (DB orchestration), `targets.ts` (rep target / load for a step),
-  `coach.ts` (rule-based coach)
+  `coach.ts` (rule-based coach), `rowing.ts` (phase targets, pace, per-phase HR / rower reports)
+- `src/rower/` — rowing machine: `ble.ts` (Web Bluetooth FTMS client, Rower Data parser, scan tool),
+  `recorder.ts` (1 Hz recording, summary), `useRower.ts`; `src/screens/rower/` — settings card,
+  runner badge, summary card
+- `src/hr/` — heart-rate strap: `ble.ts` (Web Bluetooth, 0x2A37 parser), `recorder.ts` (1 Hz recording
+  into the session, set recovery, session summary), `metrics.ts` (zones, TRIMP, calories, HRV,
+  readiness), `useHeartRate.ts`; `src/screens/hr/` — strap settings, runner badge, rest HR, readiness
+  check, session HR card
 - `src/coach/` — the Claude layer: `client.ts` (SDK call, fallback, usage), `schema.ts` (JSON
   schemas + guards), `prompts.ts` (system prompt generated from the program), `context.ts` (what is
   sent), `ask.ts`, `apply.ts` (accepted suggestions → app actions), `store.ts` (key, toggles, usage)

@@ -10,6 +10,11 @@ import { nextWorkStep, type RestStep, type WorkStep } from '../../logic/steps';
 import { exerciseForStep, loadFor, targetFor } from './WorkView';
 import { RestPauseSwitch } from './RestPauseSwitch';
 import { CoachNote } from './CoachNote';
+import { RestHr, restHrState } from '../hr/RestHr';
+import { useStrap } from '../../hr/useHeartRate';
+import { hrMaxOf } from '../../hr/metrics';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db, DEFAULT_SETTINGS, type Settings } from '../../db/db';
 
 function prevWorkStep(state: RunnerState): WorkStep | undefined {
   for (let i = state.index - 1; i >= 0; i--) {
@@ -19,8 +24,8 @@ function prevWorkStep(state: RunnerState): WorkStep | undefined {
   return undefined;
 }
 
-export function RestView(props: { state: RunnerState; step: RestStep; dispatch: (a: RunnerAction) => void; now: number }) {
-  const { state, step, dispatch, now } = props;
+export function RestView(props: { state: RunnerState; step: RestStep; dispatch: (a: RunnerAction) => void; now: number; coachPending?: Record<string, true> }) {
+  const { state, step, dispatch, now, coachPending } = props;
   const remaining = restRemainingSec(state, now);
   const total = step.durationSec + state.restExtraSec;
   const overtime = remaining <= 0;
@@ -33,13 +38,19 @@ export function RestView(props: { state: RunnerState; step: RestStep; dispatch: 
     }
   }, [overtime]);
 
+  const strapState = useStrap();
+  const settings = { ...DEFAULT_SETTINGS, ...((useLiveQuery(() => db.kv.get('settings'), [])?.value as Partial<Settings> | undefined) ?? {}) };
+  // HR-guided rest: the button turns green once HR is back down, or when the planned rest is over.
+  const guided = !!settings.hrGuidedRest && strapState.status === 'on' && strapState.bpm !== undefined;
+  const hrReady = guided && restHrState(state, strapState.bpm, hrMaxOf(settings)).ready;
+  const go = overtime || hrReady;
   const next = nextWorkStep(state.steps, state.index);
   const prev = prevWorkStep(state);
   const note = prev ? state.coach?.notes?.[prev.id] : undefined;
   const cue = note?.claude?.cue ?? note?.rule?.cue;
 
   return (
-    <div className={`rest-grid${overtime ? ' overtime' : ''}`}>
+    <div className={`rest-grid three${overtime ? ' overtime' : ''}`}>
       <section className="rest-timer">
         <div className="section-title">{step.label}</div>
         <TimerRing progress={overtime ? 1 : 1 - remaining / Math.max(1, total)} color={overtime ? 'var(--accent)' : 'var(--rest)'} size={360}>
@@ -56,10 +67,11 @@ export function RestView(props: { state: RunnerState; step: RestStep; dispatch: 
             +15 s
           </button>
         </div>
-        <button className={`btn huge block ${overtime ? 'primary' : ''}`} onClick={() => dispatch({ type: 'next', now: Date.now() })}>
-          <IconSkip width={26} height={26} /> {overtime ? 'Start next set' : 'Skip rest'}
+        <button className={`btn huge block ${go ? 'primary' : ''}`} onClick={() => dispatch({ type: 'next', now: Date.now() })}>
+          <IconSkip width={26} height={26} /> {go ? 'Start next set' : 'Skip rest'}
         </button>
-        {note && <CoachNote state={state} note={note} dispatch={dispatch} />}
+        <RestHr state={state} />
+        {guided && !go && <div className="faint" style={{ fontSize: 13 }}>HR-guided: green once HR ≤ {Math.round(hrMaxOf(settings) * 0.65)} bpm</div>}
       </section>
 
       {next && next.kind === 'work' && (
@@ -128,6 +140,17 @@ export function RestView(props: { state: RunnerState; step: RestStep; dispatch: 
           <h2>{next.title}</h2>
         </section>
       )}
+      {!next && <section className="card next-card" />}
+      <section className={`card coach-col${note ? ` ${note.claude ? 'info' : note.rule?.tone ?? 'info'}` : ''}`}>
+        {note && prev ? (
+          <CoachNote state={state} step={prev} note={note} dispatch={dispatch} pending={!!coachPending?.[prev.id]} />
+        ) : (
+          <>
+            <div className="section-title">Coach</div>
+            <div className="muted">Log a set to get feedback here.</div>
+          </>
+        )}
+      </section>
     </div>
   );
 }

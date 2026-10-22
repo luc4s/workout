@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Link, useParams } from 'react-router-dom';
-import { getTemplate, PRESCRIPTIONS, PULLUP_ROADMAP } from '../data/program';
+import { getTemplate, PRESCRIPTIONS, PULLUP_ROADMAP, targetMinOf } from '../data/program';
 import { db, DEFAULT_SETTINGS, type SetRecord, type Settings } from '../db/db';
-import { sessionReview } from '../logic/coach';
+import { sessionReview, usualRecoveryOf } from '../logic/coach';
+import { SessionHrCard } from './hr/SessionHrCard';
+import { RowerCard } from './rower/RowerCard';
 import { CoachReviewCard } from './coach/CoachReviewCard';
 import { Note } from '../components/controls';
 import { IconTrend } from '../components/icons';
@@ -30,6 +32,16 @@ export default function Summary() {
     nextTimeSuggestions(session.templateId, session.variantId).then(setNext);
   }, [session, stageDone]);
 
+  const previousHr = useMemo(
+    () =>
+      session && sessions
+        ? sessions
+            .filter((s) => s.id !== session.id && s.endedAt && s.templateId === session.templateId && s.hr?.summary && s.startedAt < session.startedAt)
+            .sort((a, b) => b.startedAt - a.startedAt)[0]?.hr?.summary
+        : undefined,
+    [session, sessions],
+  );
+  const usualRecovery = useMemo(() => (allSets && session ? usualRecoveryOf(allSets, session.startedAt) : undefined), [allSets, session]);
   const review = useMemo(() => {
     if (!session || !sets || !sessions || !allSets || !next) return undefined;
     return sessionReview({
@@ -40,12 +52,14 @@ export default function Summary() {
       sessions,
       settings,
       nextTime: next.map((n) => ({ slot: n.prescription.key, name: n.prescription.name, message: n.suggestion.message })),
+      hr: session.hr?.summary ? { summary: session.hr.summary, previous: previousHr, usualRecovery } : undefined,
     });
-  }, [session, sets, sessions, allSets, settings, next]);
+  }, [session, sets, sessions, allSets, settings, next, previousHr, usualRecovery]);
 
   if (!session || !sets || !sessions || !allSets) return null;
   const prs = review?.prs ?? [];
   const template = getTemplate(session.templateId);
+  const targetMin = targetMinOf(template, session.variantId);
   const duration = ((session.endedAt ?? Date.now()) - session.startedAt) / 1000;
   const bySlot = groupSlots(sets);
   const totalReps = sets.reduce((a, s) => a + (s.repsLeft !== undefined ? (s.repsLeft ?? 0) + (s.repsRight ?? 0) : s.reps), 0);
@@ -67,15 +81,15 @@ export default function Summary() {
       </div>
 
       <div className="grid grid-4">
-        <Stat label="Duration" value={formatClock(duration)} warn={duration / 60 > template.targetMin + 2} />
+        <Stat label="Duration" value={formatClock(duration)} warn={duration / 60 > targetMin + 2} />
         {sets.length > 0 && <Stat label="Sets logged" value={String(sets.length)} />}
         {sets.length > 0 && <Stat label="Total reps" value={String(totalReps)} />}
         {session.rowing?.distanceM && <Stat label="Distance" value={`${session.rowing.distanceM} m`} />}
         {session.rowing?.avgSplit && <Stat label="Avg split" value={session.rowing.avgSplit} />}
       </div>
 
-      {duration / 60 > template.targetMin + 2 && (
-        <Note kind="warn">Session crept past {template.targetMin} min — tighten superset transitions or drop the finisher next time.</Note>
+      {duration / 60 > targetMin + 2 && (
+        <Note kind="warn">Session crept past {targetMin} min — tighten superset transitions or drop the finisher next time.</Note>
       )}
       {prs.map((p) => (
         <Note key={p} kind="good">
@@ -83,6 +97,8 @@ export default function Summary() {
         </Note>
       ))}
       {review && <CoachReviewCard session={session} sets={sets} review={review} sessions={sessions} allSets={allSets} settings={settings} />}
+      <RowerCard session={session} settings={settings} />
+      <SessionHrCard session={session} previous={previousHr} usualRecovery={usualRecovery} />
 
       {stageUp && stageUp.suggestion.nextStage !== undefined && !stageDone && (
         <div className="card row wrap" style={{ borderColor: 'var(--good)' }}>

@@ -7,6 +7,7 @@ import { Sheet, Stepper, VariationSelect } from '../components/controls';
 import { formatClock } from '../hooks/useNow';
 import { variationOf } from '../logic/progression';
 import { groupSlots } from './Summary';
+import { RowerCard } from './rower/RowerCard';
 
 export default function SessionDetail() {
   const id = Number(useParams().id);
@@ -45,7 +46,8 @@ export default function SessionDetail() {
         </button>
       </div>
 
-      {session.rowing && (
+      <RowerCard session={session} />
+      {session.rowing && !session.rower?.summary && (
         <div className="card">
           {session.rowing.distanceM ?? '—'} m · split {session.rowing.avgSplit ?? '—'}
         </div>

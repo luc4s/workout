@@ -527,6 +527,10 @@ textarea.input {
   width: 100%;
 }
 
+.input.bad {
+  border-color: var(--critical);
+}
+
 .variation-pick {
   display: flex;
   align-items: center;
@@ -845,6 +849,16 @@ textarea.input {
 .verdict-missed {
   background: var(--critical-soft);
   color: var(--critical);
+}
+
+/* ---------- heart rate ---------- */
+
+.zone-bar {
+  display: flex;
+  height: 12px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--surface-2);
 }
 
 /* ---------- lists ---------- */

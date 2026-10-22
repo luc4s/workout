@@ -1,6 +1,8 @@
 import { getTemplate, getVariant, PULLUP_ROADMAP } from '../data/program';
 import type { Prescription, TemplateId } from '../data/types';
-import { db, getSettings, saveRunner, saveSettings, type SessionFlags, type SetRecord, type Settings } from '../db/db';
+import { db, getSettings, saveRunner, saveSettings, type SessionFlags, type SessionRecord, type SetHr, type SetRecord, type Settings } from '../db/db';
+import { finalizeHr, recorder } from '../hr/recorder';
+import { finalizeRower, rowerRecorder } from '../rower/recorder';
 import {
   applyStage,
   clampStage,
@@ -122,6 +124,7 @@ export interface SetInput {
   loadKg?: number;
   rir?: number;
   durationSec?: number;
+  hr?: SetHr;
 }
 
 export async function logSet(runner: RunnerState, step: WorkStep, input: SetInput): Promise<SetRecord> {
@@ -156,12 +159,14 @@ export async function logSet(runner: RunnerState, step: WorkStep, input: SetInpu
   return record;
 }
 
-export async function finishSession(runner: RunnerState, extra: { notes?: string; rowing?: { distanceM?: number; avgSplit?: string } } = {}) {
+export async function finishSession(runner: RunnerState, extra: { notes?: string; rowing?: SessionRecord['rowing'] } = {}) {
   const current = await db.sessions.get(runner.sessionId);
   const targets = Object.fromEntries(Object.entries(runner.suggestions).map(([slot, s]) => [slot, s.repsTarget]));
   const coach = { ...current?.coach, targets, ...(runner.coach?.notes && Object.keys(runner.coach.notes).length ? { notes: runner.coach.notes } : {}) };
   await db.sessions.update(runner.sessionId, { endedAt: Date.now(), flags: runner.flags, coach, ...extra });
   await saveRunner(undefined);
+  await finalizeHr(runner.sessionId);
+  await finalizeRower(runner.sessionId);
 }
 
 /** Mid-session protocol switch (bad day / finisher off): the session record follows the runner. */
@@ -171,6 +176,8 @@ export async function setSessionFlags(sessionId: number, flags: Partial<SessionF
 }
 
 export async function abandonSession(runner: RunnerState) {
+  if (recorder.sessionId === runner.sessionId) await recorder.stop();
+  if (rowerRecorder.sessionId === runner.sessionId) await rowerRecorder.stop();
   await db.transaction('rw', db.sessions, db.sets, async () => {
     await db.sets.where('sessionId').equals(runner.sessionId).delete();
     await db.sessions.delete(runner.sessionId);
