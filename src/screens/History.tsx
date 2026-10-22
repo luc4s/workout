@@ -56,6 +56,7 @@ export default function History() {
                     <div className="muted num">
                       {s.hr?.summary ? `♥ ${s.hr.summary.avg} · ` : ''}
                       {s.rowing?.distanceM ? `${s.rowing.distanceM} m · ` : ''}
+                      {s.rowing?.avgSplit ? `${s.rowing.avgSplit} /500 · ` : ''}
                       {data.counts.get(s.id!) ? `${data.counts.get(s.id!)} sets · ` : ''}
                       {formatClock(((s.endedAt ?? s.startedAt) - s.startedAt) / 1000)}
                     </div>

@@ -17,6 +17,9 @@ import { useCoachNotes } from './useCoachNotes';
 import { recorder } from '../../hr/recorder';
 import { strap } from '../../hr/ble';
 import { HrBadge } from '../hr/HrBadge';
+import { RowerBadge } from '../rower/RowerBadge';
+import { rower } from '../../rower/ble';
+import { rowerRecorder } from '../../rower/recorder';
 import './runner.css';
 
 export default function Runner() {
@@ -50,10 +53,12 @@ function RunnerInner({ initial }: { initial: RunnerState }) {
   // After a reload the strap is reconnected silently when the browser already knows it.
   useEffect(() => {
     recorder.start(state.sessionId);
+    if (state.templateId === 'row') rowerRecorder.start(state.sessionId);
     getSettings().then((s) => {
       if (s.strapName) strap.autoConnect(s.strapName);
+      if (state.templateId === 'row' && s.rowerName) rower.autoConnect(s.rowerName);
     });
-  }, [state.sessionId]);
+  }, [state.sessionId, state.templateId]);
 
   const finish = useCallback(
     async (extra?: Parameters<typeof finishSession>[1]) => {
@@ -101,6 +106,7 @@ function RunnerInner({ initial }: { initial: RunnerState }) {
           </div>
         </div>
         <HrBadge />
+        {state.templateId === 'row' && <RowerBadge />}
         <button className="progress-track" onClick={() => setListOpen(true)} aria-label="All steps">
           <span style={{ width: `${((state.index + 1) / state.steps.length) * 100}%` }} />
         </button>

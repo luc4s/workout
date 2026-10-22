@@ -11,7 +11,7 @@ import { isFull, labelOf, ROTATION, sessionsInWeek, suggestNext, warningsFor, we
 import type { Preparation } from './session';
 import { effectiveRir, estimateDurationSec, isOptionalSlot, type WorkStep } from './steps';
 import { targetFor } from './targets';
-import { hrTargetText, isWorkPhase, phaseHrReport } from './rowing';
+import { fmtPace, hrTargetText, isWorkPhase, phaseHrReport, phaseRowerReport, splitConsistency } from './rowing';
 
 const DAY = 24 * 3600 * 1000;
 
@@ -511,6 +511,8 @@ export interface SessionReview {
   suggestions: CoachSuggestion[];
   /** Heart-rate observations (strap sessions only). */
   hrNotes?: string[];
+  /** Rowing-machine notes (console recording): per-interval split and cadence vs target, pacing. */
+  rowerNotes?: string[];
 }
 
 export interface ReviewInput {
@@ -704,6 +706,33 @@ export function sessionReview(input: ReviewInput): SessionReview {
     if (session.hr?.readiness) hrNotes.push(`Readiness check: ${session.hr.readiness.reason}`);
   }
 
+  // Rowing machine (console recording)
+  let rowerNotes: string[] | undefined;
+  if (session.templateId === 'row' && session.rower?.summary) {
+    rowerNotes = [];
+    const sum = session.rower.summary;
+    const block = getVariant(template, session.variantId).blocks[0];
+    const phases = block.kind === 'interval' ? block.phases : [];
+    const work = phaseRowerReport(session, phases).filter((_, i) => isWorkPhase(phases[i]));
+    const prev = sessions
+      .filter((s) => s.id !== session.id && s.templateId === 'row' && s.variantId === session.variantId && s.endedAt && s.startedAt < session.startedAt && s.rower?.summary)
+      .sort((a, b) => b.startedAt - a.startedAt)[0]?.rower?.summary;
+    rowerNotes.push(
+      `${sum.distanceM} m${sum.avgPaceSec ? ` at ${fmtPace(sum.avgPaceSec)} /500 m` : ''}${sum.avgSpm !== undefined ? `, ${sum.avgSpm} spm` : ''}${sum.avgWatts !== undefined ? `, ${sum.avgWatts} W average` : ''}${prev ? ` — last ${getVariant(template, session.variantId).name}: ${prev.distanceM} m${prev.avgPaceSec ? ` at ${fmtPace(prev.avgPaceSec)}` : ''}` : ''}.`,
+    );
+    const withPace = work.filter((p) => p.paceSec !== undefined);
+    if (withPace.length) {
+      const targetOffset = phases.find(isWorkPhase)?.paceOffset2k;
+      const band = targetOffset && settings.pace2kSec ? `${fmtPace(settings.pace2kSec + targetOffset[0])}–${fmtPace(settings.pace2kSec + targetOffset[1])}` : undefined;
+      rowerNotes.push(`Work intervals: ${withPace.map((p) => `${p.label} ${fmtPace(p.paceSec!)}${p.spm !== undefined ? ` @ ${Math.round(p.spm)}` : ''}`).join(', ')}${band ? ` (target ${band} /500 m)` : ''}.`);
+      const c = splitConsistency(work);
+      if (c?.verdict === 'faded') rowerNotes.push(`The last interval was ${c.deltaSec} s/500 m slower than the first — the start was too fast; hold the first one back next time.`);
+      else if (c?.verdict === 'negative') rowerNotes.push(`Negative split (${-c.deltaSec} s/500 m faster at the end) — there was more in the tank; the first interval can start a touch harder.`);
+      else if (c) rowerNotes.push('Even splits across the work intervals — well paced.');
+    }
+    if (sum.coverage < 0.8) rowerNotes.push(`The console sent data for ${Math.round(sum.coverage * 100)}% of the session — check it stays awake and in range.`);
+  }
+
   const scored = slots.filter((s) => !s.restPause && s.target);
   const onTarget = scored.filter((s) => s.verdict === 'beat' || s.verdict === 'hit').length;
   const parts = [`${template.shortName} in ${Math.round(durationMin)} min`];
@@ -728,6 +757,7 @@ export function sessionReview(input: ReviewInput): SessionReview {
     nextTime,
     suggestions,
     hrNotes,
+    rowerNotes,
   };
 }
 
@@ -794,6 +824,8 @@ export interface TrainingStats {
     weeklyTrimp: number[];
     usualRecovery?: number;
   };
+  /** Rowing machine (console recordings), per workout variant, oldest first. */
+  rowing?: Record<string, { sessions: number; bestDistanceM: number; bestPaceSec?: number; timeline: { d: number; distanceM: number; paceSec?: number; spm?: number; watts?: number }[] }>;
 }
 
 export function trainingStats(sessions: SessionRecord[], sets: SetRecord[], settings: Settings, now: number): TrainingStats {
@@ -948,6 +980,18 @@ export function trainingStats(sessions: SessionRecord[], sets: SetRecord[], sett
     };
   }
 
+  let rowing: TrainingStats['rowing'];
+  for (const s of done) {
+    const sum = s.rower?.summary;
+    if (s.templateId !== 'row' || !sum) continue;
+    rowing ??= {};
+    const v = (rowing[s.variantId] ??= { sessions: 0, bestDistanceM: 0, timeline: [] });
+    v.sessions++;
+    v.bestDistanceM = Math.max(v.bestDistanceM, sum.distanceM);
+    if (sum.avgPaceSec && (v.bestPaceSec === undefined || sum.avgPaceSec < v.bestPaceSec)) v.bestPaceSec = sum.avgPaceSec;
+    v.timeline.push({ d: s.startedAt, distanceM: sum.distanceM, paceSec: sum.avgPaceSec, spm: sum.avgSpm, watts: sum.avgWatts });
+  }
+
   return {
     sessions: done.length,
     firstAt,
@@ -965,5 +1009,6 @@ export function trainingStats(sessions: SessionRecord[], sets: SetRecord[], sett
     longestGapDays,
     timeUse,
     hr: hrStats,
+    rowing,
   };
 }

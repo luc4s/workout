@@ -62,6 +62,9 @@ backups. Every change must keep that data working with **no migration step**:
   turns them into text / bpm; keep it pure and tested.
 - `ZONE_BOUNDS` in `src/hr/metrics.ts` is the workouts' zone table and is used app-wide; changing it
   changes new summaries only (stored `zonesSec` are not recomputed).
+- Rowing machine: `src/rower/ble.ts` is the only place that touches the FTMS service; recordings live
+  in the optional `SessionRecord.rower` (plus `Settings.rowerName` / `rowerAutoStart`), sessions
+  without a console render as before. The scan tool only reads; it never stores or sends anything.
 
 ## Checks
 

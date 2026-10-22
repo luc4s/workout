@@ -54,6 +54,33 @@ export interface Readiness {
   baseline?: { n: number; lnRmssd: number; lnRmssdSd: number; restingHr: number; restingHrSd: number };
 }
 
+/** Per-session rower summary, computed when the session ends (src/logic/rowing.ts). */
+export interface RowerSummary {
+  distanceM: number;
+  strokes?: number;
+  /** Mean pace over the samples that had one, seconds per 500 m. */
+  avgPaceSec?: number;
+  avgSpm?: number;
+  avgWatts?: number;
+  maxWatts?: number;
+  kcal?: number;
+  samples: number;
+  coverage: number;
+}
+
+/** Recording from a Bluetooth (FTMS) rowing machine, one sample per second (-1 where the console sent nothing). */
+export interface SessionRower {
+  startedAt: number;
+  deviceName?: string;
+  spm: number[];
+  paceSec: number[];
+  watts: number[];
+  /** Cumulative distance reported by the console, metres. */
+  distanceM: number[];
+  strokes?: number;
+  summary?: RowerSummary;
+}
+
 export interface SessionHr {
   /** Timestamp of bpm[0]; one sample per second, -1 where the strap had no reading. */
   startedAt: number;
@@ -93,6 +120,8 @@ export interface SessionRecord {
   coach?: SessionCoachData;
   /** Heart-rate recording, when a strap was connected. */
   hr?: SessionHr;
+  /** Rowing-machine recording, when a console was connected. */
+  rower?: SessionRower;
 }
 
 export interface SetRecord {
@@ -147,6 +176,10 @@ export interface Settings {
   strapName?: string;
   /** 2000 m test pace, seconds per 500 m; gives the rowing workouts their pace targets. */
   pace2kSec?: number;
+  /** Name of the rowing-machine console last paired, to reconnect without the picker. */
+  rowerName?: string;
+  /** Start the interval timer on the first stroke when the console is connected (default on). */
+  rowerAutoStart?: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {

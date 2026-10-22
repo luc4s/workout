@@ -1,6 +1,6 @@
 /** Rowing workout targets: cadence, heart rate, effort and pace per phase, and per-phase HR after the fact. */
 import type { IntervalPhase, Span } from '../data/types';
-import type { SessionRecord, Settings } from '../db/db';
+import type { RowerSummary, SessionRecord, SessionRower, Settings } from '../db/db';
 import { hrMaxOf, statsBetween } from '../hr/metrics';
 
 export function spanText(s: Span | undefined): string | undefined {
@@ -120,4 +120,104 @@ export function phaseHrReport(session: Pick<SessionRecord, 'hr' | 'rowing'>, pha
     at += p.durationSec * 1000;
   }
   return out;
+}
+
+/* ---------- rowing machine (FTMS console) ---------- */
+
+/** Mean of the valid (> 0) samples. */
+function meanOf(xs: number[]): number | undefined {
+  const v = xs.filter((x) => x > 0);
+  return v.length ? Math.round((v.reduce((a, b) => a + b, 0) / v.length) * 10) / 10 : undefined;
+}
+
+/** Summary of a rower recording, or undefined when it holds too little to mean anything. */
+export function rowerSummary(rec: Pick<SessionRower, 'spm' | 'paceSec' | 'watts' | 'distanceM' | 'strokes'>): RowerSummary | undefined {
+  const n = Math.max(rec.spm.length, rec.paceSec.length, rec.watts.length, rec.distanceM.length);
+  if (n < 30) return undefined;
+  // The console counts from its last reset: a counter that starts near zero is the session's own,
+  // otherwise the metres already on it are subtracted.
+  const dist = rec.distanceM.filter((d) => d >= 0);
+  const base = dist.length && dist[0] > 50 ? dist[0] : 0;
+  const distanceM = dist.length ? Math.max(...dist) - base : 0;
+  const valid = new Set<number>();
+  for (let i = 0; i < n; i++) if ((rec.spm[i] ?? -1) >= 0 || (rec.paceSec[i] ?? -1) >= 0 || (rec.watts[i] ?? -1) >= 0 || (rec.distanceM[i] ?? -1) >= 0) valid.add(i);
+  const watts = rec.watts.filter((w) => w > 0);
+  const avgSpm = meanOf(rec.spm);
+  const avgPaceSec = meanOf(rec.paceSec);
+  const avgWatts = meanOf(rec.watts);
+  return {
+    distanceM: Math.round(distanceM),
+    strokes: rec.strokes,
+    avgPaceSec: avgPaceSec === undefined ? undefined : Math.round(avgPaceSec),
+    avgSpm: avgSpm === undefined ? undefined : Math.round(avgSpm * 10) / 10,
+    avgWatts: avgWatts === undefined ? undefined : Math.round(avgWatts),
+    maxWatts: watts.length ? Math.max(...watts) : undefined,
+    samples: valid.size,
+    coverage: Math.round((valid.size / n) * 100) / 100,
+  };
+}
+
+export type RangeVerdict = 'on' | 'low' | 'high';
+
+/** Stroke rate against the phase's span (undefined when the phase has none). */
+export function spmVerdict(spm: number, phase: Pick<IntervalPhase, 'spm'>): RangeVerdict | undefined {
+  if (phase.spm === undefined) return undefined;
+  const [lo, hi] = typeof phase.spm === 'number' ? [phase.spm, phase.spm] : phase.spm;
+  return spm < lo - 0.5 ? 'low' : spm > hi + 0.5 ? 'high' : 'on';
+}
+
+/** Pace against the phase's split band (needs the 2k pace); "low" = slower than the band, "high" = faster. */
+export function paceVerdict(paceSec: number, phase: Pick<IntervalPhase, 'paceOffset2k'>, settings: Pick<Settings, 'pace2kSec'>): RangeVerdict | undefined {
+  if (!phase.paceOffset2k || !settings.pace2kSec) return undefined;
+  const [lo, hi] = phase.paceOffset2k;
+  return paceSec > settings.pace2kSec + hi + 1 ? 'low' : paceSec < settings.pace2kSec + lo - 1 ? 'high' : 'on';
+}
+
+export interface PhaseRower {
+  label: string;
+  spm?: number;
+  paceSec?: number;
+  watts?: number;
+  distanceM?: number;
+}
+
+/** Mean cadence / split / power and distance per phase of a finished rowing session (after the HR lag of hard intervals). */
+export function phaseRowerReport(session: Pick<SessionRecord, 'rower' | 'rowing'>, phases: IntervalPhase[]): PhaseRower[] {
+  const rec = session.rower;
+  const start = session.rowing?.phaseStartedAt;
+  if (!rec || !start) return [];
+  const idx = (ts: number) => Math.floor((ts - rec.startedAt) / 1000);
+  const out: PhaseRower[] = [];
+  let at = start;
+  for (const p of phases) {
+    const a = Math.max(0, idx(at));
+    const b = idx(at + p.durationSec * 1000);
+    const slice = (xs: number[]) => xs.slice(a, b + 1);
+    const dist = slice(rec.distanceM).filter((d) => d >= 0);
+    out.push({
+      label: p.label,
+      spm: meanOf(slice(rec.spm)),
+      paceSec: (() => {
+        const m = meanOf(slice(rec.paceSec));
+        return m === undefined ? undefined : Math.round(m);
+      })(),
+      watts: (() => {
+        const m = meanOf(slice(rec.watts));
+        return m === undefined ? undefined : Math.round(m);
+      })(),
+      distanceM: dist.length >= 2 ? Math.max(...dist) - Math.min(...dist) : undefined,
+    });
+    at += p.durationSec * 1000;
+  }
+  return out;
+}
+
+/** The doc's own check: if the last work interval is clearly slower than the first, the start was too fast. */
+export function splitConsistency(work: PhaseRower[]): { firstSec: number; lastSec: number; deltaSec: number; verdict: 'even' | 'faded' | 'negative' } | undefined {
+  const withPace = work.filter((p) => p.paceSec !== undefined);
+  if (withPace.length < 2) return undefined;
+  const firstSec = withPace[0].paceSec!;
+  const lastSec = withPace[withPace.length - 1].paceSec!;
+  const deltaSec = lastSec - firstSec;
+  return { firstSec, lastSec, deltaSec, verdict: deltaSec > 3 ? 'faded' : deltaSec < -3 ? 'negative' : 'even' };
 }

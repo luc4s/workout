@@ -9,7 +9,10 @@ import type { IntervalStep } from '../../logic/steps';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, DEFAULT_SETTINGS, type SessionRecord, type Settings } from '../../db/db';
 import { useStrap } from '../../hr/useHeartRate';
-import { hrTargetText, hrVerdict, isWorkPhase, phaseTargets, spanText } from '../../logic/rowing';
+import { fmtPace, hrTargetText, hrVerdict, isWorkPhase, paceVerdict, phaseTargets, spanText, spmVerdict } from '../../logic/rowing';
+import { useRower } from '../../rower/useRower';
+import { rowerRecorder } from '../../rower/recorder';
+import { rowerSummary } from '../../logic/rowing';
 
 const COLOR = { hard: 'var(--hard)', easy: 'var(--rest)', steady: 'var(--accent)' } as const;
 const TITLE = { hard: 'Hard — just sustainable', easy: 'Easy — recover', steady: 'Steady — conversational' } as const;
@@ -47,6 +50,44 @@ export function IntervalView(props: {
   const phaseElapsed = phase.durationSec - pos.phaseRemainingSec;
   const verdict = bpm === undefined ? undefined : hrVerdict(bpm, targets.hrBpm, phaseElapsed, targets.lagSec);
   const lagging = targets.lagSec !== undefined && phaseElapsed < targets.lagSec;
+  const rowerState = useRower();
+  const live = rowerState.status === 'on' ? rowerState.last : undefined;
+  const liveSpm = live?.spm !== undefined ? spmVerdict(live.spm, phase) : undefined;
+  const livePace = live?.paceSec !== undefined ? paceVerdict(live.paceSec, phase, settings) : undefined;
+  const toneOf = (v?: 'on' | 'low' | 'high') => (v === 'on' ? 'var(--good-ink)' : v ? 'var(--warn)' : undefined);
+
+  // Auto-start on the first stroke when the console is connected.
+  const autoStart = settings.rowerAutoStart !== false;
+  const mountedAt = useRef(Date.now());
+  const strokesAtMount = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    // Only samples received on this screen count: the console's last frame may predate it.
+    if (started || !autoStart || !live || live.at < mountedAt.current + 500) return;
+    if (strokesAtMount.current === undefined) strokesAtMount.current = live.strokes ?? 0;
+    const moving = (live.spm ?? 0) > 0 || (live.strokes !== undefined && live.strokes > (strokesAtMount.current ?? 0));
+    if (moving) {
+      dispatch({ type: 'check', key: startedKey, value: true });
+      dispatch({ type: 'restartStep', now: Date.now() });
+    }
+  }, [started, autoStart, live, dispatch, startedKey]);
+
+  // Done screen: prefill distance / split from the recording once (the live one, else what was saved).
+  const prefilled = useRef(false);
+  useEffect(() => {
+    if (!pos.finished || prefilled.current) return;
+    prefilled.current = true;
+    let cancelled = false;
+    (async () => {
+      const rec = rowerRecorder.snapshot() ?? (await db.sessions.get(state.sessionId))?.rower;
+      const sum = rec ? rowerSummary(rec) : undefined;
+      if (!sum || cancelled) return;
+      if (sum.distanceM > 0) setDistance((d) => d || String(sum.distanceM));
+      if (sum.avgPaceSec) setSplit((s) => s || fmtPace(sum.avgPaceSec!));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pos.finished, state.sessionId]);
 
   useEffect(() => {
     if (started && pos.phaseIndex !== lastPhase.current) {
@@ -65,6 +106,7 @@ export function IntervalView(props: {
             {workTotal > 0 ? ` · ${workTotal} work intervals` : ''}
             {!settings.pace2kSec && step.phases.some((p) => p.paceOffset2k) ? ' · set your 2k pace in Settings for split targets' : ''}
           </div>
+          {rowerState.status === 'on' && autoStart && <div className="faint">Rower connected — the timer starts on your first stroke.</div>}
           <div className="next-anim" style={{ width: '100%' }}>
             <AnimPlayer exerciseId={step.exerciseId} />
           </div>
@@ -144,6 +186,15 @@ export function IntervalView(props: {
             {verdict === 'lag' && <span className="faint"> · HR still climbing — go by feel</span>}
             {verdict === 'high' && <span className="faint"> · above the band — ease off</span>}
             {verdict === 'low' && <span className="faint"> · below the band</span>}
+          </div>
+        )}
+        {live && (
+          <div className="rest-hr num rower-live">
+            <span style={{ color: toneOf(liveSpm), fontWeight: 800 }}>{live.spm !== undefined ? `${Math.round(live.spm)} spm` : '– spm'}</span>
+            <span className="muted"> · </span>
+            <span style={{ color: toneOf(livePace), fontWeight: 800 }}>{live.paceSec !== undefined ? `${fmtPace(live.paceSec)} /500 m` : '–:–– /500 m'}</span>
+            {live.watts !== undefined && <span className="muted"> · {live.watts} W</span>}
+            {live.distanceM !== undefined && <span className="muted"> · {live.distanceM} m</span>}
           </div>
         )}
         {next && (

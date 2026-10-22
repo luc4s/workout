@@ -27,7 +27,12 @@ class HrRecorder {
     if (strap.state.deviceName) this.hr.deviceName = strap.state.deviceName;
     this.unsub = strap.onSample(this.onSample);
     this.timer = setInterval(() => this.flush(), FLUSH_MS);
+    if (typeof window !== 'undefined') window.addEventListener('pagehide', this.onHide);
   }
+
+  private onHide = () => {
+    void this.flush();
+  };
 
   private onSample = (s: HrSample) => {
     const hr = this.hr;
@@ -72,6 +77,7 @@ class HrRecorder {
     this.unsub = undefined;
     if (this.timer) clearInterval(this.timer);
     this.timer = undefined;
+    if (typeof window !== 'undefined') window.removeEventListener('pagehide', this.onHide);
     await this.flush();
     this.sessionId = undefined;
     this.hr = undefined;

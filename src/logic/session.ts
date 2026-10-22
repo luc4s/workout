@@ -2,6 +2,7 @@ import { getTemplate, getVariant, PULLUP_ROADMAP } from '../data/program';
 import type { Prescription, TemplateId } from '../data/types';
 import { db, getSettings, saveRunner, saveSettings, type SessionFlags, type SessionRecord, type SetHr, type SetRecord, type Settings } from '../db/db';
 import { finalizeHr, recorder } from '../hr/recorder';
+import { finalizeRower, rowerRecorder } from '../rower/recorder';
 import {
   applyStage,
   clampStage,
@@ -165,6 +166,7 @@ export async function finishSession(runner: RunnerState, extra: { notes?: string
   await db.sessions.update(runner.sessionId, { endedAt: Date.now(), flags: runner.flags, coach, ...extra });
   await saveRunner(undefined);
   await finalizeHr(runner.sessionId);
+  await finalizeRower(runner.sessionId);
 }
 
 /** Mid-session protocol switch (bad day / finisher off): the session record follows the runner. */
@@ -175,6 +177,7 @@ export async function setSessionFlags(sessionId: number, flags: Partial<SessionF
 
 export async function abandonSession(runner: RunnerState) {
   if (recorder.sessionId === runner.sessionId) await recorder.stop();
+  if (rowerRecorder.sessionId === runner.sessionId) await rowerRecorder.stop();
   await db.transaction('rw', db.sessions, db.sets, async () => {
     await db.sets.where('sessionId').equals(runner.sessionId).delete();
     await db.sessions.delete(runner.sessionId);

@@ -54,6 +54,12 @@ animated technique guides.
   training load (TRIMP), an HR-based calorie estimate, mean recovery, all compared with the previous
   session of the same kind. Progress shows resting HR, HRV, weekly load and recovery trends; the
   coach and Claude get the same numbers. See *Heart rate* below for what the numbers mean.
+- **Rowing machine** — connect the rower's console over Bluetooth (standard fitness-machine
+  protocol, FTMS) from Settings: live stroke rate, split, power and distance against the phase
+  targets in the runner, the timer starts on the first stroke, the recording is kept with the
+  session (per-block means against the targets, pace chart, split consistency) and the distance /
+  split fields are filled in. A "Scan console" diagnostic lists what a console exposes for the
+  case it does not speak FTMS. See *Rower* below.
 - **Exercise guides** — setup, execution, cues, common mistakes, regressions/progressions and
   sources for every movement, with a 3D animation (glTF) you can rotate — drag, double-tap to
   reset, Side / Front / ¾ presets — and red-highlighted mistake demos. Every pose is checked
@@ -218,12 +224,36 @@ old sessions and backups still resolve; they are not offered any more.
 References: Helgerud et al. 2007 (4 × 4 at 90–95 % HRmax for VO2max), Seiler et al. 2013
 (4 × 8 ≥ 4 × 4 in recreational athletes).
 
+## Rower
+
+`src/rower/ble.ts` talks to the console with Web Bluetooth through the Fitness Machine Service
+(0x1826): it subscribes to Rower Data (0x2AD1: stroke rate in ½ spm, stroke count, total distance,
+instantaneous / average pace in s/500 m, power, resistance, energy, HR, elapsed time; every field is
+optional and consoles send subsets) and reads the Fitness Machine Feature bits once. `recorder.ts`
+keeps one sample per second in `SessionRecord.rower` (spm, pace, watts, cumulative distance; backed
+up with the session); `finalizeRower` computes the summary and fills the distance / split fields
+the user left empty. `src/logic/rowing.ts` turns the recording into per-block means and verdicts
+against the workout targets (cadence span, split band from the 2k pace), plus the split-consistency
+check (last work interval more than 3 s/500 m slower than the first = started too fast).
+
+Only the user's console can tell whether it speaks FTMS. Christopeit consoles pair with Kinomap
+(WP 1500, WP 5000 / WRT 2000, WRT 1300, Columbia Pro) and reportedly EXR, but the protocol is not
+documented and one WP 5000 owner saw no FTMS. Settings → *Rowing machine* → **Scan console** picks
+any nearby device and lists the services and characteristics it exposes among a candidate list
+(FTMS, cycling power / cadence, heart rate, device information, Nordic UART, Concept2 PM5, common
+vendor UUIDs); Web Bluetooth cannot list services outside that list, so an unknown vendor UUID can
+still hide. If the report shows no fitness-machine service, that report is the starting point for a
+vendor decoder. Pairing works only while the app is on screen; wake the console first.
+
 ## Code map
 
 - `src/data/program.ts` — the program encoded from the PDF; `exercises.ts` — technique guides; `rules.ts`
 - `src/logic/` — `steps.ts` (session → steps), `runner.ts` (timer state machine), `progression.ts`,
   `schedule.ts`, `session.ts` (DB orchestration), `targets.ts` (rep target / load for a step),
-  `coach.ts` (rule-based coach), `rowing.ts` (phase targets, pace, per-phase HR report)
+  `coach.ts` (rule-based coach), `rowing.ts` (phase targets, pace, per-phase HR / rower reports)
+- `src/rower/` — rowing machine: `ble.ts` (Web Bluetooth FTMS client, Rower Data parser, scan tool),
+  `recorder.ts` (1 Hz recording, summary), `useRower.ts`; `src/screens/rower/` — settings card,
+  runner badge, summary card
 - `src/hr/` — heart-rate strap: `ble.ts` (Web Bluetooth, 0x2A37 parser), `recorder.ts` (1 Hz recording
   into the session, set recovery, session summary), `metrics.ts` (zones, TRIMP, calories, HRV,
   readiness), `useHeartRate.ts`; `src/screens/hr/` — strap settings, runner badge, rest HR, readiness

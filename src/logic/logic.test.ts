@@ -424,6 +424,19 @@ describe('backup', () => {
     await db.sets.delete('8:B.pushup#1');
   });
 
+  it('rowing-machine data rides inside the session and round-trips through a backup', async () => {
+    const rower = { startedAt: 10, spm: [22, 23, -1, 24], paceSec: [130, 131, -1, 129], watts: [150, 152, -1, 155], distanceM: [4, 8, -1, 16], strokes: 3, summary: { distanceM: 16, avgPaceSec: 130, avgSpm: 23, avgWatts: 152, maxWatts: 155, samples: 3, coverage: 0.75 } };
+    await db.sessions.put({ id: 9, templateId: 'row', variantId: 'vo2max-30', startedAt: 1, endedAt: 2, flags: { badDay: false, deload: false, finisher: false }, rowing: { distanceM: 16, avgSplit: '2:10', phaseStartedAt: 10 }, rower });
+    const file = JSON.parse(JSON.stringify(await exportBackup()));
+    await db.sessions.clear();
+    await importBackup(file);
+    const back = await db.sessions.get(9);
+    expect(back?.rower?.summary?.avgPaceSec).toBe(130);
+    expect(back?.rower?.spm).toEqual([22, 23, -1, 24]);
+    expect(back?.rowing?.phaseStartedAt).toBe(10);
+    await db.sessions.delete(9);
+  });
+
   it('never exports the coach rows and keeps them across an import', async () => {
     await db.kv.put({ key: 'coach', value: { apiKey: 'sk-ant-secret' } });
     await db.kv.put({ key: 'coach:brief', value: { date: '2026-01-01' } });

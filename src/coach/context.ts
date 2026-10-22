@@ -3,9 +3,10 @@
  * built here, so this file documents exactly what leaves the device: dates, settings (no key), the
  * last few sessions compressed per slot, the rule layer's verdict and today's session so far.
  */
-import { getTemplate, PRESCRIPTIONS, PULLUP_ROADMAP, targetMinOf, templateOfKey } from '../data/program';
+import { getTemplate, getVariant, PRESCRIPTIONS, PULLUP_ROADMAP, targetMinOf, templateOfKey } from '../data/program';
+import { isWorkPhase, phaseRowerReport } from '../logic/rowing';
 import type { TemplateId } from '../data/types';
-import type { HrSummary, SessionRecord, SetRecord, Settings } from '../db/db';
+import type { HrSummary, RowerSummary, SessionRecord, SetRecord, Settings } from '../db/db';
 import { restTakenBefore, type SessionOverview, type SessionRecommendation, type SessionReview, type SetFeedback, type TrainingStats } from '../logic/coach';
 import { clampStage, weeksSince } from '../logic/progression';
 import { sessionElapsedMs, type RunnerState } from '../logic/runner';
@@ -27,6 +28,20 @@ export interface HrBrief {
 export function hrBrief(h?: HrSummary): HrBrief | undefined {
   if (!h) return undefined;
   return { avg: h.avg, max: h.max, trimp: h.trimp, kcal: h.kcal, recovery: h.recoveryMean, zonesMin: h.zonesSec.map((z) => Math.round(z / 60)) };
+}
+
+/** Compact rowing-machine summary for the model. */
+export interface RowerBrief {
+  distanceM: number;
+  avgPaceSec?: number;
+  avgSpm?: number;
+  avgWatts?: number;
+  strokes?: number;
+}
+
+export function rowerBrief(r?: RowerSummary): RowerBrief | undefined {
+  if (!r) return undefined;
+  return { distanceM: r.distanceM, avgPaceSec: r.avgPaceSec, avgSpm: r.avgSpm, avgWatts: r.avgWatts, strokes: r.strokes };
 }
 
 export interface RecentSession {
@@ -267,6 +282,7 @@ export function buildReviewContext(input: {
   });
   const flags = [session.flags.badDay ? 'bad-day' : '', session.flags.deload ? 'deload' : '', session.flags.finisher ? 'finisher' : 'no-finisher'].filter(Boolean);
   const hrSum = hrBrief(session.hr?.summary);
+  const rowerSum = rowerBrief(session.rower?.summary);
   return {
     today: dayLabel(now),
     athlete: athlete(settings, sessions, now),
@@ -284,6 +300,7 @@ export function buildReviewContext(input: {
       sets: todaySets,
       ...(session.notes ? { notes: session.notes.slice(0, 500) } : {}),
       ...(hrSum ? { hr: { ...hrSum, readiness: session.hr?.readiness ? { score: session.hr.readiness.score, reason: session.hr.readiness.reason } : undefined, notes: review.hrNotes } } : {}),
+      ...(rowerSum ? { rower: { ...rowerSum, notes: review.rowerNotes } } : {}),
     },
   };
 }
@@ -320,6 +337,8 @@ export interface DetailedSession {
   /** Headline and concerns of the stored Claude review, if any. */
   review?: { headline?: string; concerns?: string[] };
   hr?: HrBrief & { readiness?: { restingHr: number; rmssd: number; score: string } };
+  /** Rowing-machine recording: summary and per-phase means (label, spm, pace s/500 m, watts). */
+  rower?: RowerBrief & { phases?: { p: string; spm?: number; pace?: number; w?: number }[] };
   sets: DetailedSet[];
 }
 
@@ -366,7 +385,14 @@ export function detailedSessions(sessions: SessionRecord[], sets: SetRecord[], c
     const f = flagsOf(s);
     if (f) out.flags = f;
     if (s.notes) out.notes = s.notes.slice(0, 500);
-    if (s.rowing && (s.rowing.distanceM || s.rowing.avgSplit)) out.rowing = s.rowing;
+    if (s.rowing && (s.rowing.distanceM || s.rowing.avgSplit)) out.rowing = { distanceM: s.rowing.distanceM, avgSplit: s.rowing.avgSplit };
+    const rb = rowerBrief(s.rower?.summary);
+    if (rb) {
+      const block = s.templateId === 'row' ? getVariant(getTemplate('row'), s.variantId).blocks[0] : undefined;
+      const phases = block?.kind === 'interval' ? block.phases : [];
+      const report = phaseRowerReport(s, phases).filter((_, i) => isWorkPhase(phases[i]) || phases[i].intensity === 'steady').filter((p) => p.spm !== undefined || p.paceSec !== undefined);
+      out.rower = { ...rb, ...(report.length ? { phases: report.map((p) => ({ p: p.label, spm: p.spm, pace: p.paceSec, w: p.watts })) } : {}) };
+    }
     if (s.coach?.targets && Object.keys(s.coach.targets).length) out.targets = s.coach.targets;
     if (review?.headline) out.review = { headline: review.headline, concerns: review.concerns?.slice(0, 3) };
     return out;

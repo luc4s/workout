@@ -5,6 +5,7 @@ import { getTemplate, PRESCRIPTIONS, PULLUP_ROADMAP, targetMinOf } from '../data
 import { db, DEFAULT_SETTINGS, type SetRecord, type Settings } from '../db/db';
 import { sessionReview, usualRecoveryOf } from '../logic/coach';
 import { SessionHrCard } from './hr/SessionHrCard';
+import { RowerCard } from './rower/RowerCard';
 import { CoachReviewCard } from './coach/CoachReviewCard';
 import { Note } from '../components/controls';
 import { IconTrend } from '../components/icons';
@@ -96,6 +97,7 @@ export default function Summary() {
         </Note>
       ))}
       {review && <CoachReviewCard session={session} sets={sets} review={review} sessions={sessions} allSets={allSets} settings={settings} />}
+      <RowerCard session={session} settings={settings} />
       <SessionHrCard session={session} previous={previousHr} usualRecovery={usualRecovery} />
 
       {stageUp && stageUp.suggestion.nextStage !== undefined && !stageDone && (
