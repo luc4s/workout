@@ -60,6 +60,8 @@ export interface PhaseTargets {
   spm?: string;
   hrPct?: string;
   hrBpm: HrTarget;
+  /** False when the workout gives this phase no HR target (accelerations and their recoveries). */
+  hasHr: boolean;
   rpe?: string;
   /** "+12–18 s → 2:05–2:11", or just the offset when no 2k pace is set. */
   pace?: string;
@@ -71,7 +73,9 @@ export interface PhaseTargets {
 }
 
 export function phaseTargets(phase: IntervalPhase, settings: Pick<Settings, 'hrMax' | 'birthYear' | 'pace2kSec'>): PhaseTargets {
-  const out: PhaseTargets = { hrBpm: hrTargetBpm(phase, hrMaxOf(settings)) };
+  // Phases of the current workouts carry `kind`; one without `hrPct` has no HR target in the spec.
+  // Legacy phases (no `kind`) keep the intensity rule.
+  const out: PhaseTargets = { hrBpm: hrTargetBpm(phase, hrMaxOf(settings)), hasHr: !!phase.hrPct || !phase.kind };
   out.spm = spanText(phase.spm);
   if (phase.hrPct) {
     const [lo, hi] = phase.hrPct;

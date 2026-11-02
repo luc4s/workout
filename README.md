@@ -128,6 +128,13 @@ How the runner holds to that, in `src/screens/runner/runner.css`:
   `TimerRing` is only the SVG geometry and an upper bound.
 - The rest screen is three full-width columns: timer | up next (targets, then the 3D view, which
   absorbs the leftover height) | coach feedback (scrolls inside its card if it ever overflows).
+- The rowing screen in progress (`.row-live`) is read from the seat, 1–1.5 m away: phase name,
+  a timer ring, and up to four tiles (heart rate, stroke rate, split, effort) that show the live
+  reading large with the target under it, or the target itself when no strap / console is
+  connected; a proportional strip of the whole workout and the next block sit underneath. Type
+  follows the viewport height, and the ring and tile values also follow their own box (container
+  units; `--len` is a value's width in em) so ranges like `2:17–2:23` shrink to fit instead of
+  clipping. At 960 × 600 the smallest number on it is ~47px and captions are 25px.
 - `@media (max-height: 760px) and (orientation: landscape)` tightens the logging panel. The
   case that needs it is the weighted split squat — two rep steppers *plus* a load stepper.
 - Portrait stacks the two columns and goes back to scrolling.

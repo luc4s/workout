@@ -29,6 +29,10 @@ describe('rowing targets', () => {
     expect(t.paceOffset).toBe('+12–18 s');
     expect(t.paceSplit).toBe('2:17–2:23');
     expect(phaseTargets(phase, { hrMax: 180 }).pace).toBe('+12–18 s');
+    expect(t.hasHr).toBe(true);
+    // Accelerations have no HR target in the spec; legacy phases keep the intensity rule.
+    expect(phaseTargets({ label: 'Accel 1/2', durationSec: 15, intensity: 'hard', kind: 'accel', spm: [24, 28], rpe: 5 }, { hrMax: 180 }).hasHr).toBe(false);
+    expect(phaseTargets({ label: 'Hard 1/4', durationSec: 180, intensity: 'hard' }, { hrMax: 180 }).hasHr).toBe(true);
     // Recovery band [0, 75] has no lower bound; a phase without hrPct falls back to the intensity rule.
     expect(hrTargetBpm({ intensity: 'easy', hrPct: [0, 75] }, 180)).toEqual({ max: 135 });
     expect(hrTargetBpm({ intensity: 'hard' }, 180)).toEqual({ min: 153 });
