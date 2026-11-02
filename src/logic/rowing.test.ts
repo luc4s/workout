@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { getTemplate, getVariant } from '../data/program';
 import type { SessionRecord } from '../db/db';
-import { fmtPace, hrTargetBpm, hrTargetText, hrVerdict, paceVerdict, parsePace, phaseHrReport, phaseRowerReport, phaseTargets, rowerSummary, spanText, splitConsistency, spmVerdict } from './rowing';
+import { fmtPace, hrTargetBpm, hrTargetText, hrVerdict, paceVerdict, parsePace, phaseHrReport, phaseRowerReport, phaseTargets, rowedMetres, rowerSummary, spanText, splitConsistency, spmVerdict, wallClock } from './rowing';
 
 describe('rowing targets', () => {
   it('formats spans and paces', () => {
@@ -97,7 +97,8 @@ describe('rowing targets', () => {
     expect(n).toBe(1800);
     const rec = { startedAt: t0, spm, paceSec, watts, distanceM, strokes: 640 };
     const sum = rowerSummary(rec)!;
-    expect(sum.distanceM).toBe(distanceM[distanceM.length - 1]);
+    // Metres rowed from the first reading on (what was already on the counter is not counted).
+    expect(sum.distanceM).toBe(distanceM[distanceM.length - 1] - distanceM[0]);
     expect(sum.avgSpm).toBeCloseTo(21.3, 0);
     expect(sum.avgWatts).toBe(143);
     expect(sum.maxWatts).toBe(170);
@@ -124,5 +125,37 @@ describe('rowing targets', () => {
     expect(paceVerdict(150, phase, { pace2kSec: 125 })).toBe('low');
     expect(paceVerdict(130, phase, { pace2kSec: 125 })).toBe('high');
     expect(paceVerdict(130, phase, {})).toBeUndefined();
+  });
+
+  it('counts rowed metres across a counter reset and ignores metres already on the counter', () => {
+    expect(rowedMetres([30, 40, -1, 60, 2, 12, 20])).toBe(10 + 20 + 10 + 8);
+    expect(rowedMetres([1200, 1210, 1225])).toBe(25);
+    expect(rowedMetres([])).toBe(0);
+  });
+
+  it('maps rowing time to wall-clock time across pauses', () => {
+    const wall = wallClock(1000, [{ at: 1000 + 30_000, ms: 60_000 }]);
+    expect(wall(10)).toBe(11_000);
+    expect(wall(30)).toBe(1000 + 30_000 + 60_000); // the pause starts at 30 s of rowing
+    expect(wall(40)).toBe(1000 + 40_000 + 60_000);
+    expect(wallClock(0)(5)).toBe(5000);
+  });
+
+  it('keeps per-block HR aligned after a pause', () => {
+    const block = getVariant(getTemplate('row'), 'fat-loss-30').blocks[0];
+    if (block.kind !== 'interval') throw new Error('interval block expected');
+    const t0 = 5_000_000;
+    // Warm-up 300 s at 110, then a 120 s pause at 150 s into the warm-up (HR 90), then tempo at 150.
+    const bpm: number[] = [];
+    for (let s = 0; s < 150; s++) bpm.push(110);
+    for (let s = 0; s < 120; s++) bpm.push(90);
+    for (let s = 0; s < 150; s++) bpm.push(110);
+    for (let s = 0; s < 300; s++) bpm.push(150);
+    const session: Pick<SessionRecord, 'hr' | 'rowing'> = { hr: { startedAt: t0, bpm }, rowing: { phaseStartedAt: t0, pauses: [{ at: t0 + 150_000, ms: 120_000 }] } };
+    const report = phaseHrReport(session, block.phases, { hrMax: 180 });
+    expect(report[1].label).toBe('Tempo 1/4');
+    expect(report[1].mean).toBe(150);
+    // Without the pause record the tempo block would be read 2 min early (mostly warm-up).
+    expect(phaseHrReport({ ...session, rowing: { phaseStartedAt: t0 } }, block.phases, { hrMax: 180 })[1].mean).toBeLessThan(140);
   });
 });

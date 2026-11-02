@@ -146,7 +146,12 @@ export function IntervalView(props: {
             onClick={() =>
               onFinish({
                 notes: notes || undefined,
-                rowing: { distanceM: distance ? Number(distance) : undefined, avgSplit: split || undefined, phaseStartedAt: state.stepStartedAt },
+                rowing: {
+                  distanceM: distance ? Number(distance) : undefined,
+                  avgSplit: split || undefined,
+                  // stepStartedAt moves forward with every pause; the recordings are wall-clock.
+                  ...rowingClock(state),
+                },
               })
             }
           >
@@ -215,6 +220,13 @@ export function IntervalView(props: {
       </footer>
     </div>
   );
+}
+
+/** When the interval timer really started, and the pauses taken since (state.pauses is reset at the start). */
+function rowingClock(state: RunnerState): { phaseStartedAt: number; pauses?: { at: number; ms: number }[] } {
+  const pauses = state.pauses ?? [];
+  const pausedMs = pauses.reduce((a, p) => a + p.ms, 0);
+  return { phaseStartedAt: state.stepStartedAt - pausedMs, ...(pauses.length ? { pauses } : {}) };
 }
 
 type Tone = 'on' | 'off' | 'neutral';

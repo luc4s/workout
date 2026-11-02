@@ -108,20 +108,37 @@ export interface PhaseHr {
 }
 
 /** Mean / max HR per phase of a finished rowing session, against each phase's target. Needs the strap and the phase start time. */
+/**
+ * Maps seconds of rowing (the timer's clock, pauses excluded) to wall-clock time, the clock the HR and
+ * rower recordings use. Pauses are wall-clock starts and lengths, taken after `startedAt`.
+ */
+export function wallClock(startedAt: number, pauses: { at: number; ms: number }[] = []): (activeSec: number) => number {
+  const sorted = [...pauses].sort((a, b) => a.at - b.at);
+  return (activeSec) => {
+    let wall = startedAt + activeSec * 1000;
+    for (const p of sorted) {
+      if (p.at <= wall) wall += p.ms;
+      else break;
+    }
+    return wall;
+  };
+}
+
 export function phaseHrReport(session: Pick<SessionRecord, 'hr' | 'rowing'>, phases: IntervalPhase[], settings: Pick<Settings, 'hrMax' | 'birthYear'> = {}): PhaseHr[] {
   const hr = session.hr;
   const start = session.rowing?.phaseStartedAt;
   if (!hr || !start) return [];
+  const wall = wallClock(start, session.rowing?.pauses);
   const hrMax = hr.summary?.hrMax ?? hrMaxOf(settings);
   const out: PhaseHr[] = [];
-  let at = start;
+  let t = 0;
   for (const p of phases) {
     const target = hrTargetBpm(p, hrMax);
     // Skip the HR lag of hard intervals so the mean reflects the steady part.
-    const from = at + Math.min(p.hrLagSec ?? 0, p.durationSec / 2) * 1000;
-    const st = statsBetween(hr, from, at + p.durationSec * 1000);
+    const from = wall(t + Math.min(p.hrLagSec ?? 0, p.durationSec / 2));
+    const st = statsBetween(hr, from, wall(t + p.durationSec));
     out.push({ label: p.label, mean: st.mean, max: st.max, target, verdict: st.mean !== undefined ? hrVerdict(st.mean, target, p.durationSec) : undefined });
-    at += p.durationSec * 1000;
+    t += p.durationSec;
   }
   return out;
 }
@@ -138,11 +155,7 @@ function meanOf(xs: number[]): number | undefined {
 export function rowerSummary(rec: Pick<SessionRower, 'spm' | 'paceSec' | 'watts' | 'distanceM' | 'strokes'>): RowerSummary | undefined {
   const n = Math.max(rec.spm.length, rec.paceSec.length, rec.watts.length, rec.distanceM.length);
   if (n < 30) return undefined;
-  // The console counts from its last reset: a counter that starts near zero is the session's own,
-  // otherwise the metres already on it are subtracted.
-  const dist = rec.distanceM.filter((d) => d >= 0);
-  const base = dist.length && dist[0] > 50 ? dist[0] : 0;
-  const distanceM = dist.length ? Math.max(...dist) - base : 0;
+  const distanceM = rowedMetres(rec.distanceM);
   const valid = new Set<number>();
   for (let i = 0; i < n; i++) if ((rec.spm[i] ?? -1) >= 0 || (rec.paceSec[i] ?? -1) >= 0 || (rec.watts[i] ?? -1) >= 0 || (rec.distanceM[i] ?? -1) >= 0) valid.add(i);
   const watts = rec.watts.filter((w) => w > 0);
@@ -159,6 +172,22 @@ export function rowerSummary(rec: Pick<SessionRower, 'spm' | 'paceSec' | 'watts'
     samples: valid.size,
     coverage: Math.round((valid.size / n) * 100) / 100,
   };
+}
+
+/**
+ * Metres rowed from the console's cumulative counter: the sum of forward steps between readings, so
+ * metres already on the counter at the start are not counted and a counter reset mid-session (idle
+ * consoles do this) is not a loss.
+ */
+export function rowedMetres(distanceM: number[]): number {
+  let sum = 0;
+  let prev: number | undefined;
+  for (const d of distanceM) {
+    if (d < 0) continue;
+    if (prev !== undefined && d > prev) sum += d - prev;
+    prev = d;
+  }
+  return sum;
 }
 
 export type RangeVerdict = 'on' | 'low' | 'high';
@@ -191,13 +220,14 @@ export function phaseRowerReport(session: Pick<SessionRecord, 'rower' | 'rowing'
   const start = session.rowing?.phaseStartedAt;
   if (!rec || !start) return [];
   const idx = (ts: number) => Math.floor((ts - rec.startedAt) / 1000);
+  const wall = wallClock(start, session.rowing?.pauses);
   const out: PhaseRower[] = [];
-  let at = start;
+  let t = 0;
   for (const p of phases) {
-    const a = Math.max(0, idx(at));
-    const b = idx(at + p.durationSec * 1000);
+    const a = Math.max(0, idx(wall(t)));
+    const b = idx(wall(t + p.durationSec));
     const slice = (xs: number[]) => xs.slice(a, b + 1);
-    const dist = slice(rec.distanceM).filter((d) => d >= 0);
+    const metres = rowedMetres(slice(rec.distanceM));
     out.push({
       label: p.label,
       spm: meanOf(slice(rec.spm)),
@@ -209,9 +239,9 @@ export function phaseRowerReport(session: Pick<SessionRecord, 'rower' | 'rowing'
         const m = meanOf(slice(rec.watts));
         return m === undefined ? undefined : Math.round(m);
       })(),
-      distanceM: dist.length >= 2 ? Math.max(...dist) - Math.min(...dist) : undefined,
+      distanceM: metres > 0 ? metres : undefined,
     });
-    at += p.durationSec * 1000;
+    t += p.durationSec;
   }
   return out;
 }

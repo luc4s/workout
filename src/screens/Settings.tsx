@@ -8,6 +8,7 @@ import { labelOf } from '../logic/schedule';
 import { CoachSettingsCard } from './coach/CoachSettingsCard';
 import { StrapSettingsCard } from './hr/StrapSettingsCard';
 import { RowerSettingsCard } from './rower/RowerSettingsCard';
+import { saveProfile } from '../hr/recorder';
 
 export default function SettingsScreen() {
   const settings = (useLiveQuery(() => db.kv.get('settings'), [])?.value as Settings | undefined) ?? DEFAULT_SETTINGS;
@@ -28,7 +29,16 @@ export default function SettingsScreen() {
         <div className="card stack">
           <div className="section-title">You</div>
           <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            <Stepper label="Body weight" unit="kg" step={0.5} value={s.bodyweightKg ?? 75} onChange={(v) => saveSettings({ bodyweightKg: v })} />
+            <Stepper
+              label="Body weight"
+              unit={s.bodyweightKg === undefined ? undefined : 'kg'}
+              step={0.5}
+              value={s.bodyweightKg ?? 75}
+              format={(v) => (s.bodyweightKg === undefined ? '—' : String(v))}
+              // Unset: the first tap stores the typical value shown in the hint, then +/− adjust it.
+              onChange={(v) => saveProfile({ bodyweightKg: s.bodyweightKg === undefined ? 75 : v })}
+              hint={s.bodyweightKg === undefined ? 'not set — tap + or − (starts at 75)' : undefined}
+            />
             <Stepper label="Pull-up max" value={s.pullupMax} onChange={(v) => saveSettings({ pullupMax: v })} hint="bodyweight reps" />
           </div>
           <div className="section-title">Pull-up roadmap stage</div>

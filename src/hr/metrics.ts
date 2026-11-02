@@ -71,6 +71,20 @@ export function kcalKeytel(bpm: number[], p: { sex?: 'male' | 'female'; age?: nu
   return Math.round(kj / 4.184);
 }
 
+/** What the calorie estimate still needs from the profile (empty when it can run). */
+export function kcalMissing(p: { sex?: 'male' | 'female'; age?: number; weightKg?: number }): string[] {
+  const out: string[] = [];
+  if (!p.sex) out.push('sex');
+  if (!p.age) out.push('birth year');
+  if (!p.weightKg) out.push('body weight');
+  return out;
+}
+
+/** A reading worth recording: the strap reports skin contact (or does not report it) and the value is physiological. */
+export function isPlausibleSample(s: { bpm: number; contact?: boolean }): boolean {
+  return s.contact !== false && s.bpm >= 30 && s.bpm <= 230;
+}
+
 /** Drop RR intervals that differ from the previous kept one by more than 20 % (ectopics, dropouts). */
 export function filterRr(rr: number[]): number[] {
   const out: number[] = [];

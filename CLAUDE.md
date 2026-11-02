@@ -49,8 +49,14 @@ backups. Every change must keep that data working with **no migration step**:
 
 - Strap data lives in optional fields only (`SessionRecord.hr`, `SetRecord.hr`, HR profile fields on
   `Settings`); sessions without a strap must render exactly as before.
-- `src/hr/ble.ts` is the only place that touches `navigator.bluetooth`; everything else goes through
-  the `strap` singleton / `recorder`, so tests and headless checks can fake it.
+- `src/hr/ble.ts` (strap) and `src/rower/ble.ts` (rowing console) are the only places that touch
+  `navigator.bluetooth`; everything else goes through the `strap` / `rower` singletons and their
+  recorders, so tests and headless checks can fake them. A known device is only reused after checking
+  it has the expected service (the origin knows both the strap and the console).
+- Readings the strap flags as "no skin contact" are not heart rate: `isPlausibleSample` keeps them out
+  of the recording, the live state and the readiness check.
+- Profile fields that feed estimates (sex, birth year, body weight, resting HR) show as unset until
+  stored — never display a default as if it were saved. `saveProfile` saves and backfills calories.
 - HR maths stays in `src/hr/metrics.ts` as pure functions with tests; formulas and their limits are
   documented in the README (*Heart rate*) — keep the UI wording honest about estimates.
 

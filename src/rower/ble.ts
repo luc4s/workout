@@ -209,7 +209,9 @@ class Rower {
     const ch = ev.target as BluetoothRemoteGATTCharacteristic;
     if (!ch.value) return;
     const s = parseRowerData(ch.value);
-    this.set({ last: s });
+    // Many consoles split one second of data over two notifications ("More Data"): keep the fields
+    // the latest frame did not carry instead of blanking them.
+    this.set({ last: { ...this.state.last, ...s } });
     for (const fn of this.sampleListeners) fn(s);
   };
 

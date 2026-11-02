@@ -3,9 +3,9 @@
  * 15 s and on demand. One recorder for the app; it keeps going when the user leaves the runner
  * screen and stops when the session is finished or discarded.
  */
-import { db, getSettings, saveSettings, type Readiness, type SessionHr, type SetHr, type Settings } from '../db/db';
+import { db, getSettings, KCAL_BACKFILL_KEY, saveSettings, type Readiness, type SessionHr, type SetHr, type Settings } from '../db/db';
 import { strap, type HrSample } from './ble';
-import { filterRr, hrSummary, profileOf, recovery60, statsBetween } from './metrics';
+import { filterRr, hrSummary, isPlausibleSample, kcalKeytel, kcalMissing, profileOf, recovery60, statsBetween } from './metrics';
 
 const FLUSH_MS = 15_000;
 
@@ -36,7 +36,8 @@ class HrRecorder {
 
   private onSample = (s: HrSample) => {
     const hr = this.hr;
-    if (!hr || s.bpm <= 0) return;
+    // No skin contact: the strap keeps sending a number, but it is not the athlete's heart rate.
+    if (!hr || !isPlausibleSample(s)) return;
     const i = Math.floor((s.at - hr.startedAt) / 1000);
     if (i < 0) return;
     while (hr.bpm.length < i) hr.bpm.push(-1);
@@ -117,6 +118,36 @@ export async function finalizeHr(sessionId: number): Promise<void> {
   const patch: Partial<Settings> = {};
   if (best > profile.hrMax) patch.hrMax = Math.round(best);
   if (Object.keys(patch).length) await saveSettings(patch);
+}
+
+/**
+ * Calories for finished sessions whose summary has none because the profile (sex, birth year,
+ * body weight) was incomplete when they ended. Uses the age at the session date and the current
+ * weight. Sessions that already have a figure are left alone. Returns how many were filled in.
+ */
+export async function backfillKcal(): Promise<number> {
+  const settings = await getSettings();
+  if (kcalMissing(profileOf(settings)).length) return 0;
+  // One pass per profile: on later launches with the same profile there is nothing new to fill in
+  // (sessions ending from now on get their figure at finish), so skip reading every recording.
+  const signature = `${settings.sex}|${settings.birthYear}|${settings.bodyweightKg}`;
+  if ((await db.kv.get(KCAL_BACKFILL_KEY))?.value === signature) return 0;
+  const todo = (await db.sessions.toArray()).filter((s) => s.endedAt && s.hr?.summary && s.hr.summary.kcal === undefined && s.hr.bpm.length);
+  let n = 0;
+  for (const s of todo) {
+    const kcal = kcalKeytel(s.hr!.bpm, profileOf(settings, s.startedAt));
+    if (kcal === undefined) continue;
+    await db.sessions.update(s.id!, { hr: { ...s.hr!, summary: { ...s.hr!.summary!, kcal } } });
+    n++;
+  }
+  await db.kv.put({ key: KCAL_BACKFILL_KEY, value: signature });
+  return n;
+}
+
+/** Save profile fields, then fill in calories that were waiting for them. */
+export async function saveProfile(patch: Partial<Settings>): Promise<void> {
+  await saveSettings(patch);
+  await backfillKcal();
 }
 
 /** Resting HR for the profile: the mean of the last 7 readiness checks. */

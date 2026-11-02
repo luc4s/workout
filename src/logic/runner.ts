@@ -57,6 +57,8 @@ export interface RunnerState {
   lastTime: Record<string, LastTime>;
   /** Coach state (absent on runners saved before the coach existed). */
   coach?: RunnerCoach;
+  /** Pauses since the current step was (re)started: wall-clock start and length (absent on older runners). */
+  pauses?: { at: number; ms: number }[];
 }
 
 export type RunnerAction =
@@ -142,6 +144,7 @@ export function runnerReducer(state: RunnerState, action: RunnerAction): RunnerS
         pausedAt: undefined,
         stepStartedAt: state.stepStartedAt + pausedMs,
         pausedTotalMs: state.pausedTotalMs + pausedMs,
+        pauses: [...(state.pauses ?? []), { at: state.pausedAt, ms: pausedMs }],
       };
     }
     case 'adjustRest':
@@ -165,7 +168,7 @@ export function runnerReducer(state: RunnerState, action: RunnerAction): RunnerS
     case 'check':
       return { ...state, checks: { ...state.checks, [action.key]: action.value } };
     case 'restartStep':
-      return { ...state, stepStartedAt: action.now, pausedAt: undefined, restExtraSec: 0 };
+      return { ...state, stepStartedAt: action.now, pausedAt: undefined, restExtraSec: 0, pauses: [] };
     case 'coachNote': {
       const notes = state.coach?.notes ?? {};
       return { ...state, coach: { ...state.coach, notes: { ...notes, [action.stepId]: { ...notes[action.stepId], ...action.note } } } };

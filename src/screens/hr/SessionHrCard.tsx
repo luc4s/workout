@@ -1,6 +1,8 @@
 import { LineChart } from '../../components/charts';
 import type { HrSummary, SessionRecord } from '../../db/db';
-import { compareHr, fmtZones, ZONE_NAMES } from '../../hr/metrics';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { compareHr, fmtZones, kcalMissing, profileOf, ZONE_NAMES } from '../../hr/metrics';
+import { db, DEFAULT_SETTINGS, type Settings } from '../../db/db';
 import { ZONE_COLORS } from './HrBadge';
 import { getTemplate, getVariant } from '../../data/program';
 import { hrTargetText, isWorkPhase, phaseHrReport } from '../../logic/rowing';
@@ -10,6 +12,8 @@ export function SessionHrCard(props: { session: SessionRecord; previous?: HrSumm
   const { session, previous, usualRecovery } = props;
   const hr = session.hr;
   const sum = hr?.summary;
+  const settings = { ...DEFAULT_SETTINGS, ...((useLiveQuery(() => db.kv.get('settings'), [])?.value as Partial<Settings> | undefined) ?? {}) };
+  const missing = kcalMissing(profileOf(settings));
   if (!hr || !sum) return null;
   // One point per 10 s for the chart (valid samples only).
   const points: { x: number; y: number }[] = [];
@@ -36,7 +40,7 @@ export function SessionHrCard(props: { session: SessionRecord; previous?: HrSumm
         <Stat label="Average" value={`${sum.avg}`} unit="bpm" delta={cmp ? sign(cmp.avg) : undefined} />
         <Stat label="Max" value={`${sum.max}`} unit={`bpm · ${Math.round((sum.max / sum.hrMax) * 100)}%`} delta={cmp ? sign(cmp.max) : undefined} />
         <Stat label="Load" value={sum.trimp !== undefined ? `${Math.round(sum.trimp)}` : '–'} unit={sum.trimpMethod === 'banister' ? 'TRIMP' : 'zone TRIMP'} delta={cmp?.trimp !== undefined ? sign(Math.round(cmp.trimp)) : undefined} />
-        <Stat label="≈ Calories" value={sum.kcal !== undefined ? `${sum.kcal}` : '–'} unit={sum.kcal !== undefined ? 'kcal, HR estimate' : 'needs sex, birth year and weight in Settings'} delta={cmp?.kcal !== undefined ? sign(Math.round(cmp.kcal)) : undefined} />
+        <Stat label="≈ Calories" value={sum.kcal !== undefined ? `${sum.kcal}` : '–'} unit={sum.kcal !== undefined ? 'kcal, HR estimate' : missing.length ? `add your ${missing.join(', ')} in Settings` : 'computing…'} delta={cmp?.kcal !== undefined ? sign(Math.round(cmp.kcal)) : undefined} />
       </div>
       <LineChart points={points} unit=" bpm" height={160} zeroBased={false} />
       <div className="zone-bar" aria-label={fmtZones(sum.zonesSec)}>

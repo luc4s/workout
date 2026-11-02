@@ -115,8 +115,11 @@ export interface SessionRecord {
   endedAt?: number;
   flags: SessionFlags;
   notes?: string;
-  /** Distance / split for rowing sessions; `phaseStartedAt` is when the interval timer started (for per-phase HR). */
-  rowing?: { distanceM?: number; avgSplit?: string; phaseStartedAt?: number };
+  /**
+   * Distance / split for rowing sessions; `phaseStartedAt` is when the interval timer started (for
+   * per-phase HR), `pauses` the pauses taken after that (absent: none, or an older session).
+   */
+  rowing?: { distanceM?: number; avgSplit?: string; phaseStartedAt?: number; pauses?: { at: number; ms: number }[] };
   coach?: SessionCoachData;
   /** Heart-rate recording, when a strap was connected. */
   hr?: SessionHr;
@@ -233,6 +236,9 @@ export async function saveRunner(state: RunnerState | undefined) {
   if (state) await db.kv.put({ key: 'runner', value: state });
   else await db.kv.delete('runner');
 }
+
+/** Marks the profile the calorie backfill last ran with. Device-local: never exported, dropped on import. */
+export const KCAL_BACKFILL_KEY = 'hr:kcal-backfill';
 
 /** kv rows that belong to the coach (API key, caches, usage): never exported in backups, kept on import. */
 export function isCoachKey(key: string): boolean {

@@ -3,7 +3,8 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { Chips, Note, Stepper, ToggleRow } from '../../components/controls';
 import { db, DEFAULT_SETTINGS, saveSettings, type Settings } from '../../db/db';
 import { isBluetoothSupported, strap } from '../../hr/ble';
-import { estimateHrMax, hrMaxOf } from '../../hr/metrics';
+import { estimateHrMax, hrMaxOf, kcalMissing, profileOf } from '../../hr/metrics';
+import { saveProfile } from '../../hr/recorder';
 import { useStrap } from '../../hr/useHeartRate';
 import { fmtPace, parsePace } from '../../logic/rowing';
 
@@ -58,7 +59,16 @@ export function StrapSettingsCard() {
       <div className="divider" />
       <div className="section-title">Profile for HR maths</div>
       <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-        <Stepper label="Birth year" value={s.birthYear ?? 1990} min={year - 100} max={year - 10} onChange={(v) => saveSettings({ birthYear: v })} hint={estimate ? `age-based max ≈ ${estimate} bpm` : undefined} />
+        <Stepper
+          label="Birth year"
+          value={s.birthYear ?? 1990}
+          min={year - 100}
+          max={year - 10}
+          format={(v) => (s.birthYear === undefined ? '—' : String(v))}
+          // Unset: the first tap stores the shown starting year, then +/− adjust it.
+          onChange={(v) => saveProfile({ birthYear: s.birthYear === undefined ? 1990 : v })}
+          hint={s.birthYear === undefined ? 'not set — tap + or − (starts at 1990)' : estimate ? `age-based max ≈ ${estimate} bpm` : undefined}
+        />
         <Stepper
           label="Max HR"
           unit="bpm"
@@ -68,7 +78,16 @@ export function StrapSettingsCard() {
           onChange={(v) => saveSettings({ hrMax: v })}
           hint={s.hrMax ? 'set by hand or measured' : 'estimated — the highest HR seen while wearing the strap replaces it'}
         />
-        <Stepper label="Resting HR" unit="bpm" value={s.hrRest ?? 60} min={30} max={120} onChange={(v) => saveSettings({ hrRest: v })} hint={s.hrRest ? 'from the readiness checks' : 'set after the first readiness checks'} />
+        <Stepper
+          label="Resting HR"
+          unit={s.hrRest === undefined ? undefined : 'bpm'}
+          value={s.hrRest ?? 60}
+          min={30}
+          max={120}
+          format={(v) => (s.hrRest === undefined ? '—' : String(v))}
+          onChange={(v) => saveSettings({ hrRest: s.hrRest === undefined ? 60 : v })}
+          hint={s.hrRest ? 'from the readiness checks or set by hand' : 'not set — the readiness checks fill it in'}
+        />
         <div className="stack tight">
           <div className="stepper">
             <div className="label">Sex (for the calorie formula)</div>
@@ -79,7 +98,7 @@ export function StrapSettingsCard() {
               { id: 'female', label: 'Female' },
             ]}
             value={s.sex}
-            onChange={(v) => saveSettings({ sex: v })}
+            onChange={(v) => saveProfile({ sex: v })}
           />
         </div>
       </div>
@@ -105,6 +124,12 @@ export function StrapSettingsCard() {
           </span>
         </label>
       </div>
+      {kcalMissing(profileOf(s)).length > 0 && (
+        <Note kind="warn">
+          Calorie estimates need your {kcalMissing(profileOf(s)).join(', ')}
+          {kcalMissing(profileOf(s)).includes('body weight') ? ' (body weight is in the "You" card)' : ''}. Sessions already recorded get their estimate as soon as these are set.
+        </Note>
+      )}
       <ToggleRow
         title="Readiness check before the warm-up"
         description="60 s seated with the strap on: resting HR and HRV against your own baseline."

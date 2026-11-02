@@ -11,6 +11,10 @@ import Library from './screens/Library';
 import ExerciseDetail from './screens/ExerciseDetail';
 import Reference from './screens/Reference';
 import SettingsScreen from './screens/Settings';
+import { backfillKcal } from './hr/recorder';
+
+// Sessions summarised before the profile was complete get their calorie estimate once it is.
+void backfillKcal().catch(() => undefined);
 
 const NAV = [
   { to: '/', label: 'Today', icon: IconToday, end: true },
