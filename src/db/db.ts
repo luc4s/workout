@@ -54,6 +54,27 @@ export interface Readiness {
   baseline?: { n: number; lnRmssd: number; lnRmssdSd: number; restingHr: number; restingHrSd: number };
 }
 
+export type Medal = 'gold' | 'silver' | 'bronze';
+
+/**
+ * The rowing game of a session (src/logic/rowgame.ts), frozen when the session ends so later changes
+ * to the 2k pace or max HR do not move past scores.
+ */
+export interface RowGame {
+  v: 1;
+  score: number;
+  /** Seconds on target, and seconds where at least one metric could be judged. */
+  onSec: number;
+  judgedSec: number;
+  maxMultiplier: number;
+  /** One per medal-eligible block (work intervals, or the steady blocks of the Z2 workout). */
+  medals: (Medal | null)[];
+  /** Cumulative score every 10 s of rowing (the ghost for the next session). */
+  curve: number[];
+  /** Metres rowed every 10 s, when a console was connected. */
+  distCurve?: number[];
+}
+
 /** Per-session rower summary, computed when the session ends (src/logic/rowing.ts). */
 export interface RowerSummary {
   distanceM: number;
@@ -119,7 +140,7 @@ export interface SessionRecord {
    * Distance / split for rowing sessions; `phaseStartedAt` is when the interval timer started (for
    * per-phase HR), `pauses` the pauses taken after that (absent: none, or an older session).
    */
-  rowing?: { distanceM?: number; avgSplit?: string; phaseStartedAt?: number; pauses?: { at: number; ms: number }[] };
+  rowing?: { distanceM?: number; avgSplit?: string; phaseStartedAt?: number; pauses?: { at: number; ms: number }[]; game?: RowGame };
   coach?: SessionCoachData;
   /** Heart-rate recording, when a strap was connected. */
   hr?: SessionHr;
@@ -183,6 +204,10 @@ export interface Settings {
   rowerName?: string;
   /** Start the interval timer on the first stroke when the console is connected (default on). */
   rowerAutoStart?: boolean;
+  /** Sound cues on the rowing screen (default on). */
+  rowingSound?: boolean;
+  /** Go full screen when a session starts (default on). */
+  sessionFullscreen?: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {

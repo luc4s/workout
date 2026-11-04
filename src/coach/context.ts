@@ -339,6 +339,8 @@ export interface DetailedSession {
   hr?: HrBrief & { readiness?: { restingHr: number; rmssd: number; score: string } };
   /** Rowing-machine recording: summary and per-phase means (label, spm, pace s/500 m, watts). */
   rower?: RowerBrief & { phases?: { p: string; spm?: number; pace?: number; w?: number }[] };
+  /** Rowing game: score, % of judged time on target, best combo multiplier, medals per interval. */
+  game?: { score: number; onPct: number; maxX: number; medals: (string | null)[] };
   sets: DetailedSet[];
 }
 
@@ -393,6 +395,8 @@ export function detailedSessions(sessions: SessionRecord[], sets: SetRecord[], c
       const report = phaseRowerReport(s, phases).filter((_, i) => isWorkPhase(phases[i]) || phases[i].intensity === 'steady').filter((p) => p.spm !== undefined || p.paceSec !== undefined);
       out.rower = { ...rb, ...(report.length ? { phases: report.map((p) => ({ p: p.label, spm: p.spm, pace: p.paceSec, w: p.watts })) } : {}) };
     }
+    const g = s.rowing?.game;
+    if (g) out.game = { score: g.score, onPct: Math.round((g.onSec / g.judgedSec) * 100), maxX: g.maxMultiplier, medals: g.medals };
     if (s.coach?.targets && Object.keys(s.coach.targets).length) out.targets = s.coach.targets;
     if (review?.headline) out.review = { headline: review.headline, concerns: review.concerns?.slice(0, 3) };
     return out;

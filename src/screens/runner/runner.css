@@ -542,6 +542,7 @@
 }
 
 .row-progress {
+  margin-left: auto;
   text-align: right;
   font-size: clamp(18px, 3.8vh, 26px);
   color: var(--text-2);
@@ -651,6 +652,46 @@
   color: var(--warn);
 }
 
+/* Score tile: accent edge, and a flash each time the combo reaches a new level (it remounts). */
+.metric.score.neutral {
+  border-left-color: var(--accent);
+}
+
+.metric.score.lvl2,
+.metric.score.lvl3,
+.metric.score.lvl4 {
+  animation: level-up 0.9s ease-out;
+}
+
+@keyframes level-up {
+  0% {
+    box-shadow: 0 0 0 8px var(--accent);
+  }
+  100% {
+    box-shadow: var(--shadow);
+  }
+}
+
+.row-sound {
+  flex: none;
+  align-self: center;
+  min-width: 52px;
+  height: 52px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-size: 24px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.row-sound.locked {
+  font-size: 16px;
+  box-shadow: inset 0 0 0 3px var(--accent);
+}
+
 .metric-t {
   font-size: clamp(16px, 4.2vh, 28px);
   font-weight: 650;
@@ -682,18 +723,50 @@
   flex-basis: 0;
   min-width: 4px;
   border-radius: 4px;
-  overflow: hidden;
-  opacity: 0.4;
 }
 
-.row-timeline span.past {
-  opacity: 0.15;
+/* Upcoming and past blocks are dimmed with an overlay (not opacity) so a medal on them stays bright. */
+.row-timeline span:not(.current)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--surface);
+  opacity: 0.55;
+}
+
+.row-timeline span.past::after {
+  opacity: 0.82;
 }
 
 .row-timeline span.current {
-  opacity: 1;
   outline: 2px solid var(--text);
   outline-offset: 1px;
+  overflow: hidden;
+}
+
+.row-timeline .medal {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 50%;
+  width: clamp(12px, 2.6vh, 18px);
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--surface);
+}
+
+.medal.gold {
+  background: #d6a514;
+}
+
+.medal.silver {
+  background: #9aa4ad;
+}
+
+.medal.bronze {
+  background: #b5713a;
 }
 
 .row-timeline i {

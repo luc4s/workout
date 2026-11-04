@@ -474,6 +474,12 @@ describe('backup', () => {
     expect(back?.rower?.summary?.avgPaceSec).toBe(130);
     expect(back?.rower?.spm).toEqual([22, 23, -1, 24]);
     expect(back?.rowing?.phaseStartedAt).toBe(10);
+    // The rowing game rides in the same optional field.
+    await db.sessions.update(9, { rowing: { ...back!.rowing, game: { v: 1, score: 4200, onSec: 300, judgedSec: 320, maxMultiplier: 3, medals: ['gold', null], curve: [100, 300], distCurve: [30, 62] } } });
+    const file2 = JSON.parse(JSON.stringify(await exportBackup()));
+    await db.sessions.clear();
+    await importBackup(file2);
+    expect((await db.sessions.get(9))?.rowing?.game?.medals).toEqual(['gold', null]);
     await db.sessions.delete(9);
   });
 

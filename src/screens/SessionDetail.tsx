@@ -8,6 +8,7 @@ import { formatClock } from '../hooks/useNow';
 import { variationOf } from '../logic/progression';
 import { groupSlots } from './Summary';
 import { RowerCard } from './rower/RowerCard';
+import { RowGameCard } from './rower/RowGameCard';
 
 export default function SessionDetail() {
   const id = Number(useParams().id);
@@ -46,6 +47,7 @@ export default function SessionDetail() {
         </button>
       </div>
 
+      <RowGameCard session={session} />
       <RowerCard session={session} />
       {session.rowing && !session.rower?.summary && (
         <div className="card">

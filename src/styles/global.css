@@ -1070,3 +1070,63 @@ table.data th {
   font-size: 24px;
   font-weight: 800;
 }
+
+/* Rowing game: medal chips (summary) and the badge grid (progress). */
+.medal-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-weight: 650;
+  font-size: 15px;
+}
+
+.medal-chip .medal {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--surface-3);
+}
+
+.medal-chip .medal.gold {
+  background: #d6a514;
+}
+
+.medal-chip .medal.silver {
+  background: #9aa4ad;
+}
+
+.medal-chip .medal.bronze {
+  background: #b5713a;
+}
+
+.badge-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 8px;
+}
+
+.badge-tile {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--border);
+  color: var(--text-3);
+}
+
+.badge-tile.got {
+  border: 1px solid var(--good);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.badge-name {
+  font-weight: 750;
+}
+
+.badge-how {
+  font-size: 13px;
+  color: var(--text-3);
+}

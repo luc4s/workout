@@ -7,6 +7,7 @@ import { labelOf, weekStart } from '../logic/schedule';
 import { groupBySession, variationOf } from '../logic/progression';
 import { advanceStage } from '../logic/session';
 import { PULLUP_ROADMAP_TEXT } from '../data/rules';
+import { RowingProgressCard } from './rower/RowingProgressCard';
 
 const WEEK = 7 * 24 * 3600 * 1000;
 
@@ -111,6 +112,8 @@ export default function Progress() {
         <div className="section-title">Training time per week</div>
         <BarChart bars={weekBars} unit=" min" />
       </div>
+
+      <RowingProgressCard sessions={sessions} />
 
       {(readiness.length > 0 || loadBars.some((b) => b.value > 0)) && (
         <div className="card stack">

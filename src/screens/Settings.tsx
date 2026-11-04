@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { PRESCRIPTIONS, PULLUP_ROADMAP, templateOfKey } from '../data/program';
 import { db, DEFAULT_SETTINGS, saveSettings, type Settings } from '../db/db';
 import { downloadJson, exportBackup, importBackup } from '../db/backup';
-import { Chips, Note, Stepper } from '../components/controls';
+import { Chips, Note, Stepper, ToggleRow } from '../components/controls';
 import { labelOf } from '../logic/schedule';
 import { CoachSettingsCard } from './coach/CoachSettingsCard';
 import { StrapSettingsCard } from './hr/StrapSettingsCard';
@@ -69,6 +69,12 @@ export default function SettingsScreen() {
           <div className="faint" style={{ fontSize: 14 }}>
             Applies to sessions started after the change.
           </div>
+          <ToggleRow
+            title="Full screen during sessions"
+            description="Starting a session hides the status and navigation bars; the button in the session bar switches it back and forth."
+            checked={s.sessionFullscreen !== false}
+            onChange={(v) => saveSettings({ sessionFullscreen: v })}
+          />
         </div>
 
         <div className="card stack">

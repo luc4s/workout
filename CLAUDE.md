@@ -68,6 +68,11 @@ backups. Every change must keep that data working with **no migration step**:
   turns them into text / bpm; keep it pure and tested.
 - `ZONE_BOUNDS` in `src/hr/metrics.ts` is the workouts' zone table and is used app-wide; changing it
   changes new summaries only (stored `zonesSec` are not recomputed).
+- Rowing game (`src/logic/rowgame.ts`): pure and computed from the recordings, never from runner
+  state, so a reload resumes it. `SessionRecord.rowing.game` is optional and frozen at finish; badge
+  ids are stable (never rename or remove one). Cue decisions stay in the pure `cuesBetween`; playback
+  is a no-op until a tap unlocks audio. Full screen and audio both need a user gesture: request them
+  in the tap handler before anything is awaited.
 - Rowing machine: `src/rower/ble.ts` is the only place that touches the FTMS service; recordings live
   in the optional `SessionRecord.rower` (plus `Settings.rowerName` / `rowerAutoStart`), sessions
   without a console render as before. The scan tool only reads; it never stores or sends anything.

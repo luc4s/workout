@@ -3,7 +3,8 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import { getTemplate, targetMinOf } from '../../data/program';
 import { getRunner, getSettings, saveRunner } from '../../db/db';
 import { Sheet } from '../../components/controls';
-import { IconClose, IconNext, IconPause, IconPlay, IconPrev } from '../../components/icons';
+import { IconClose, IconExpand, IconNext, IconPause, IconPlay, IconPrev, IconShrink } from '../../components/icons';
+import { exitFullscreen, useFullscreen } from '../../hooks/useFullscreen';
 import { formatClock, useNow } from '../../hooks/useNow';
 import { useWakeLock } from '../../hooks/useWakeLock';
 import { runnerReducer, sessionElapsedMs, type RunnerAction, type RunnerState } from '../../logic/runner';
@@ -40,6 +41,7 @@ function RunnerInner({ initial }: { initial: RunnerState }) {
   const [listOpen, setListOpen] = useState(false);
   const finishing = useRef(false);
   const now = useNow(250);
+  const fullscreen = useFullscreen();
   const wake = useWakeLock(true);
   const template = getTemplate(state.templateId);
 
@@ -63,6 +65,7 @@ function RunnerInner({ initial }: { initial: RunnerState }) {
   const finish = useCallback(
     async (extra?: Parameters<typeof finishSession>[1]) => {
       finishing.current = true;
+      exitFullscreen();
       await finishSession(state, extra);
       navigate(`/summary/${state.sessionId}`, { replace: true });
     },
@@ -71,6 +74,7 @@ function RunnerInner({ initial }: { initial: RunnerState }) {
 
   const discard = async () => {
     finishing.current = true;
+    exitFullscreen();
     await abandonSession(state);
     navigate('/', { replace: true });
   };
@@ -111,6 +115,11 @@ function RunnerInner({ initial }: { initial: RunnerState }) {
           <span style={{ width: `${((state.index + 1) / state.steps.length) * 100}%` }} />
         </button>
         <div className="row" style={{ gap: 6 }}>
+          {fullscreen.supported && (
+            <button className="btn icon-btn" onClick={fullscreen.toggle} aria-label={fullscreen.active ? 'Leave full screen' : 'Full screen'}>
+              {fullscreen.active ? <IconShrink /> : <IconExpand />}
+            </button>
+          )}
           <button className="btn icon-btn" onClick={() => dispatch({ type: 'prev', now: Date.now() })} disabled={state.index === 0} aria-label="Previous step">
             <IconPrev />
           </button>
