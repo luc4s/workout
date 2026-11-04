@@ -107,6 +107,14 @@ all: the service worker precaches every asset (~500 KB) and nothing is fetched a
 the app launches and runs fully offline from its icon. When the tablet is online again it picks
 up new versions by itself.
 
+Devices: pair the strap and the rowing console once (Settings, or *Pair* on the setup screen).
+After that the app looks for them by itself — the strap at launch, the console when you open a
+rowing session — and connects as soon as each one is on (strap worn, console woken), with no
+picker. The setup screen's *Devices* card shows where each one is and has a one-tap *Connect* for
+when it does not. This relies on Chrome letting the page list the devices it was allowed before
+(`navigator.bluetooth.getDevices`) and watch their advertisements; on a Chrome without that, the
+card says so and *Connect* is one tap before each session.
+
 Sessions go full screen when they start (Settings → *Full screen during sessions*); the button in
 the session bar switches it back and forth, and is needed again after a reload because browsers
 only allow full screen from a tap.

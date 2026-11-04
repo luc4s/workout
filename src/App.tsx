@@ -12,9 +12,17 @@ import ExerciseDetail from './screens/ExerciseDetail';
 import Reference from './screens/Reference';
 import SettingsScreen from './screens/Settings';
 import { backfillKcal } from './hr/recorder';
+import { strap } from './hr/ble';
+import { rememberDevices } from './hr/remember';
+import { getSettings } from './db/db';
 
 // Sessions summarised before the profile was complete get their calorie estimate once it is.
 void backfillKcal().catch(() => undefined);
+rememberDevices();
+// A paired strap reconnects by itself (or as soon as it is worn, where the browser can watch for it).
+void getSettings()
+  .then((s) => (s.strapName ? strap.autoConnect(s.strapName) : undefined))
+  .catch(() => undefined);
 
 const NAV = [
   { to: '/', label: 'Today', icon: IconToday, end: true },

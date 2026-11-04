@@ -1130,3 +1130,44 @@ table.data th {
   font-size: 13px;
   color: var(--text-3);
 }
+
+/* Setup screen: devices before the session. */
+.device-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+}
+
+.device-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.device-dot {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--surface-3);
+}
+
+.device-dot.on {
+  background: var(--good);
+}
+
+.device-dot.waiting,
+.device-dot.connecting {
+  background: var(--accent);
+  animation: device-pulse 1.4s ease-in-out infinite;
+}
+
+.device-dot.lost {
+  background: var(--warn);
+}
+
+@keyframes device-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}

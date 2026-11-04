@@ -20,7 +20,7 @@ export function HrBadge() {
       </span>
     );
   }
-  const label = st.status === 'connecting' ? '♥ …' : st.status === 'lost' ? '♥ lost' : st.status === 'on' ? '♥ –' : '♥ connect';
+  const label = st.status === 'connecting' ? '♥ …' : st.status === 'waiting' ? '♥ waiting' : st.status === 'lost' ? '♥ lost' : st.status === 'on' ? '♥ –' : '♥ connect';
   return (
     <button type="button" className="hr-badge btn small ghost" onClick={() => strap.connect(s.strapName)} aria-label="Connect the heart-rate strap">
       {label}

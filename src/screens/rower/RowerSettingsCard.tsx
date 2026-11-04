@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Note, ToggleRow } from '../../components/controls';
 import { db, DEFAULT_SETTINGS, saveSettings, type Settings } from '../../db/db';
@@ -13,9 +13,6 @@ export function RowerSettingsCard() {
   const [scan, setScan] = useState<ScanReport | undefined>();
   const [scanning, setScanning] = useState(false);
   const [copied, setCopied] = useState(false);
-  useEffect(() => {
-    if (st.status === 'on' && st.deviceName && st.deviceName !== s.rowerName) saveSettings({ rowerName: st.deviceName });
-  }, [st.status, st.deviceName, s.rowerName]);
 
   const last = st.last;
   const live = last
@@ -60,7 +57,7 @@ export function RowerSettingsCard() {
               <button className="btn primary" onClick={() => rower.connect(s.rowerName)} disabled={st.status === 'connecting'}>
                 {st.status === 'connecting' ? 'Connecting…' : st.status === 'lost' ? 'Reconnect rower' : 'Connect rower'}
               </button>
-              {s.rowerName && <span className="faint">Last paired: {s.rowerName}</span>}
+              {s.rowerName && <span className="faint">{st.status === 'waiting' ? `Looking for ${s.rowerName} — it connects as soon as the console wakes` : `Last paired: ${s.rowerName}`}</span>}
             </>
           )}
         </div>

@@ -6,6 +6,8 @@
  * exposes among a candidate list of services, so a vendor protocol can be worked out from it.
  */
 
+import { watchKnownDevice } from '../hr/ble';
+
 export const FTMS_SERVICE = 0x1826;
 export const ROWER_DATA = 0x2ad1;
 export const FITNESS_MACHINE_FEATURE = 0x2acc;
@@ -86,7 +88,8 @@ export function parseFeatures(data: DataView): string[] {
   return names.filter((_, i) => f & (1 << i));
 }
 
-export type RowerStatus = 'unsupported' | 'off' | 'connecting' | 'on' | 'lost';
+/** `waiting`: a remembered console is asleep; it connects by itself as soon as it advertises. */
+export type RowerStatus = 'unsupported' | 'off' | 'connecting' | 'waiting' | 'on' | 'lost';
 
 export interface RowerState {
   status: RowerStatus;
@@ -111,6 +114,7 @@ class Rower {
   private wantConnected = false;
   private retryTimer?: ReturnType<typeof setTimeout>;
   private retries = 0;
+  private stopWatch?: () => void;
 
   onSample(fn: SampleListener): () => void {
     this.sampleListeners.add(fn);
@@ -134,6 +138,7 @@ class Rower {
       this.set({ status: 'unsupported' });
       return;
     }
+    this.stopWatching();
     this.wantConnected = true;
     this.set({ status: 'connecting', error: undefined });
     try {
@@ -147,10 +152,21 @@ class Rower {
     }
   }
 
-  /** Reconnect to a known console without the picker (no user gesture needed). */
+  /**
+   * Reconnect to a known console without the picker (no user gesture needed): where the browser can,
+   * wait for it to advertise (status `waiting`, e.g. until the console wakes) and connect then.
+   */
   async autoConnect(knownName?: string): Promise<boolean> {
-    if (!isBluetoothSupported() || this.state.status === 'on' || this.state.status === 'connecting') return this.state.status === 'on';
+    const st = this.state.status;
+    if (!isBluetoothSupported() || st === 'on' || st === 'connecting' || st === 'waiting') return st === 'on';
+    if (!knownName) return false;
     this.set({ status: 'connecting', error: undefined });
+    const stop = await watchKnownDevice(knownName, (d) => this.onSeen(d, knownName));
+    if (stop) {
+      this.stopWatch = stop;
+      if (this.state.status === 'connecting') this.set({ status: 'waiting' });
+      return false;
+    }
     try {
       const device = await this.knownDevice(knownName);
       if (!device) {
@@ -164,6 +180,25 @@ class Rower {
       this.set({ status: 'off' });
       return false;
     }
+  }
+
+  private onSeen = async (device: BluetoothDevice, name: string) => {
+    this.stopWatch = undefined;
+    if (this.state.status === 'on') return;
+    this.wantConnected = true;
+    this.set({ status: 'connecting' });
+    try {
+      await this.attach(device);
+    } catch {
+      this.wantConnected = false;
+      this.set({ status: 'off' });
+      void this.autoConnect(name);
+    }
+  };
+
+  private stopWatching() {
+    this.stopWatch?.();
+    this.stopWatch = undefined;
   }
 
   private async knownDevice(name?: string): Promise<BluetoothDevice | undefined> {
@@ -237,6 +272,7 @@ class Rower {
 
   async disconnect() {
     this.wantConnected = false;
+    this.stopWatching();
     if (this.retryTimer) clearTimeout(this.retryTimer);
     const d = this.device;
     this.device = undefined;
