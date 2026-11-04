@@ -1,8 +1,9 @@
 import { getTemplate, getVariant, PULLUP_ROADMAP } from '../data/program';
-import type { Prescription, TemplateId } from '../data/types';
+import type { IntervalPhase, Prescription, TemplateId } from '../data/types';
 import { db, getSettings, saveRunner, saveSettings, type SessionFlags, type SessionRecord, type SetHr, type SetRecord, type Settings } from '../db/db';
 import { finalizeHr, recorder } from '../hr/recorder';
 import { finalizeRower, rowerRecorder } from '../rower/recorder';
+import { gameInputOf, gameSummary, scoreTimeline } from './rowgame';
 import {
   applyStage,
   clampStage,
@@ -167,6 +168,17 @@ export async function finishSession(runner: RunnerState, extra: { notes?: string
   await saveRunner(undefined);
   await finalizeHr(runner.sessionId);
   await finalizeRower(runner.sessionId);
+  const interval = runner.steps.find((s) => s.kind === 'interval');
+  await finalizeRowGame(runner.sessionId, interval?.kind === 'interval' ? interval.phases : undefined);
+}
+
+/** Freeze the rowing game into the session (after the recordings are final). Safe without any recording. */
+export async function finalizeRowGame(sessionId: number, rowedPhases?: IntervalPhase[]): Promise<void> {
+  const session = await db.sessions.get(sessionId);
+  if (!session?.rowing) return;
+  const input = gameInputOf(session, await getSettings(), rowedPhases);
+  const game = input ? gameSummary(scoreTimeline(input)) : undefined;
+  if (game) await db.sessions.update(sessionId, { rowing: { ...session.rowing, game } });
 }
 
 /** Mid-session protocol switch (bad day / finisher off): the session record follows the runner. */

@@ -61,4 +61,6 @@ export const IconInfo = base(
 );
 export const IconTrend = base(<path d="M3 17l6-6 4 4 8-8M15 7h6v6" />);
 export const IconSkip = base(<path d="M5 4l10 8-10 8zM19 5v14" />);
+export const IconExpand = base(<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />);
+export const IconShrink = base(<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />);
 export const IconFlag = base(<path d="M5 21V4h11l-2 4 2 4H5" />);

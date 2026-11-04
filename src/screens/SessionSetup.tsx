@@ -14,6 +14,8 @@ import { lastRestPauseSlot, prepareSession, startSession, type Preparation, type
 import { estimateDurationSec } from '../logic/steps';
 import { phaseTargets, spanText } from '../logic/rowing';
 import { getCoachNext, type CoachNext } from '../coach/store';
+import { enterFullscreen } from '../hooks/useFullscreen';
+import { sound } from '../audio/cues';
 
 export default function SessionSetup() {
   const { templateId = 'A' } = useParams();
@@ -114,6 +116,9 @@ export default function SessionSetup() {
 
   const start = async () => {
     if (!prep || !upToDate) return;
+    // Both need this tap (a user gesture), so they come before anything is awaited.
+    if (prep.settings.sessionFullscreen !== false) enterFullscreen();
+    sound.unlock();
     setStarting(true);
     // A weight picked here that differs from the suggestion restarts that exercise at the bottom of its range.
     const suggestions: Record<string, Suggestion> = { ...prep.suggestions };

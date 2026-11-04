@@ -107,6 +107,10 @@ all: the service worker precaches every asset (~500 KB) and nothing is fetched a
 the app launches and runs fully offline from its icon. When the tablet is online again it picks
 up new versions by itself.
 
+Sessions go full screen when they start (Settings → *Full screen during sessions*); the button in
+the session bar switches it back and forth, and is needed again after a reload because browsers
+only allow full screen from a tap.
+
 Data lives in that browser, for that origin, on that device — clearing site data or moving to a
 different URL starts you with an empty log, so export a backup from Settings now and then.
 
@@ -128,6 +132,13 @@ How the runner holds to that, in `src/screens/runner/runner.css`:
   `TimerRing` is only the SVG geometry and an upper bound.
 - The rest screen is three full-width columns: timer | up next (targets, then the 3D view, which
   absorbs the leftover height) | coach feedback (scrolls inside its card if it ever overflows).
+- The rowing screen in progress (`.row-live`) is read from the seat, 1–1.5 m away: phase name,
+  a timer ring, and up to four tiles (heart rate, stroke rate, split, effort) that show the live
+  reading large with the target under it, or the target itself when no strap / console is
+  connected; a proportional strip of the whole workout and the next block sit underneath. Type
+  follows the viewport height, and the ring and tile values also follow their own box (container
+  units; `--len` is a value's width in em) so ranges like `2:17–2:23` shrink to fit instead of
+  clipping. At 960 × 600 the smallest number on it is ~47px and captions are 25px.
 - `@media (max-height: 760px) and (orientation: landscape)` tightens the logging panel. The
   case that needs it is the weighted split squat — two rep steppers *plus* a load stepper.
 - Portrait stacks the two columns and goes back to scrolling.
@@ -221,6 +232,23 @@ falls back to the Z2 session on a deload, a poor readiness check, after two hard
 or when Session A is next. The previous rowing variants (`4x4`, `8x1`, `steady`) are kept hidden so
 old sessions and backups still resolve; they are not offered any more.
 
+### The rowing game
+
+With a strap or the console connected, every second of rowing is judged against the targets of the
+block (`src/logic/rowgame.ts`): heart rate (not during the HR lag of hard intervals), stroke rate,
+and split when a 2k pace is set. A second inside every band scores 10 points × the combo: ×2 after
+30 s on target, ×3 after 90 s, ×4 after 3 min; three seconds off target in a row break it (a shorter
+wobble does not). Each work interval (the steady blocks of the Z2 workout) earns gold / silver /
+bronze at 90 / 75 / 50 % on target. The score tile races a ghost — your last session of the same
+workout — in metres when both had the console, else in points. Short sound cues (Web Audio, no
+files): 3-2-1 before a block ends, a tone on the new block, a chime on each combo level and medal,
+one low tone when the combo breaks (at most every 15 s); the speaker button mutes them. The summary
+shows score, medals, the result against the ghost, new personal bests and badges; Progress shows
+the weekly streak, totals, bests per workout and the badge grid. The score is computed from the
+recordings, so it survives a reload, and frozen into `SessionRecord.rowing.game` at finish so later
+changes to the 2k pace or max HR do not rewrite old scores. It rewards staying in the bands, not
+going harder.
+
 References: Helgerud et al. 2007 (4 × 4 at 90–95 % HRmax for VO2max), Seiler et al. 2013
 (4 × 8 ≥ 4 × 4 in recreational athletes).
 
@@ -250,7 +278,8 @@ vendor decoder. Pairing works only while the app is on screen; wake the console 
 - `src/data/program.ts` — the program encoded from the PDF; `exercises.ts` — technique guides; `rules.ts`
 - `src/logic/` — `steps.ts` (session → steps), `runner.ts` (timer state machine), `progression.ts`,
   `schedule.ts`, `session.ts` (DB orchestration), `targets.ts` (rep target / load for a step),
-  `coach.ts` (rule-based coach), `rowing.ts` (phase targets, pace, per-phase HR / rower reports)
+  `coach.ts` (rule-based coach), `rowing.ts` (phase targets, pace, per-phase HR / rower reports),
+  `rowgame.ts` (score, combo, medals, ghost, bests, streaks, badges); `src/audio/cues.ts` (sound cues)
 - `src/rower/` — rowing machine: `ble.ts` (Web Bluetooth FTMS client, Rower Data parser, scan tool),
   `recorder.ts` (1 Hz recording, summary), `useRower.ts`; `src/screens/rower/` — settings card,
   runner badge, summary card

@@ -6,6 +6,7 @@ import { db, DEFAULT_SETTINGS, type SetRecord, type Settings } from '../db/db';
 import { sessionReview, usualRecoveryOf } from '../logic/coach';
 import { SessionHrCard } from './hr/SessionHrCard';
 import { RowerCard } from './rower/RowerCard';
+import { RowGameCard } from './rower/RowGameCard';
 import { CoachReviewCard } from './coach/CoachReviewCard';
 import { Note } from '../components/controls';
 import { IconTrend } from '../components/icons';
@@ -97,6 +98,7 @@ export default function Summary() {
         </Note>
       ))}
       {review && <CoachReviewCard session={session} sets={sets} review={review} sessions={sessions} allSets={allSets} settings={settings} />}
+      <RowGameCard session={session} />
       <RowerCard session={session} settings={settings} />
       <SessionHrCard session={session} previous={previousHr} usualRecovery={usualRecovery} />
 

@@ -1,12 +1,14 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'vitest';
 import { getTemplate, isHardRowing, PRESCRIPTIONS, restPauseOptions, targetMinOf, visibleVariants } from '../data/program';
-import { DEFAULT_SETTINGS, db, type SessionRecord, type SetRecord, type Settings } from '../db/db';
+import { DEFAULT_SETTINGS, db, KCAL_BACKFILL_KEY, type SessionRecord, type SetRecord, type Settings } from '../db/db';
 import { exportBackup, importBackup } from '../db/backup';
 import { applyStage, detectStall, suggest, suggestRestPause, type SlotSession } from './progression';
-import { createRunner, intervalPosition, restRemainingSec, runnerReducer, sessionElapsedMs } from './runner';
+import { createRunner, intervalPosition, restRemainingSec, runnerReducer, sessionElapsedMs, type RunnerState } from './runner';
 import { suggestNext, warningsFor } from './schedule';
 import { isWorkPhase } from './rowing';
+import { backfillKcal, saveProfile } from '../hr/recorder';
+import { kcalKeytel } from '../hr/metrics';
 import { lastRestPauseSlot, prepareSession } from './session';
 import { buildSteps, dropRemainingSets, estimateDurationSec, estimateWorkSec, type Step, type WorkStep } from './steps';
 
@@ -142,6 +144,20 @@ describe('runner', () => {
       plans: {},
       now: t0,
     });
+
+  it('records pauses for the rowing clock and resets them when a step restarts', () => {
+    let s = make();
+    s = runnerReducer(s, { type: 'pause', now: t0 + 10_000 });
+    s = runnerReducer(s, { type: 'resume', now: t0 + 70_000 });
+    expect(s.pauses).toEqual([{ at: t0 + 10_000, ms: 60_000 }]);
+    s = runnerReducer(s, { type: 'restartStep', now: t0 + 80_000 });
+    expect(s.pauses).toEqual([]);
+    // A runner saved by the previous release has no `pauses` and still pauses / resumes.
+    const old = { ...make() } as RunnerState;
+    delete old.pauses;
+    const resumed = runnerReducer(runnerReducer(old, { type: 'pause', now: t0 }), { type: 'resume', now: t0 + 5000 });
+    expect(resumed.pauses).toEqual([{ at: t0, ms: 5000 }]);
+  });
 
   it('timers are derived from timestamps and exclude pauses', () => {
     let s = make();
@@ -424,6 +440,30 @@ describe('backup', () => {
     await db.sets.delete('8:B.pushup#1');
   });
 
+  it('fills in calories for sessions summarised before the profile was complete, once it is', async () => {
+    const bpm = Array.from({ length: 600 }, () => 130);
+    const summary = { avg: 130, max: 130, min: 130, zonesSec: [0, 600, 0, 0, 0], samples: 600, coverage: 1, hrMax: 185 };
+    const started = new Date(2026, 9, 1, 18).getTime();
+    await db.sessions.put({ id: 21, templateId: 'row', variantId: 'fat-loss-60', startedAt: started, endedAt: started + 600_000, flags: { badDay: false, deload: false, finisher: false }, hr: { startedAt: started, bpm, summary } });
+    await db.sessions.put({ id: 22, templateId: 'row', variantId: 'fat-loss-60', startedAt: started, endedAt: started + 600_000, flags: { badDay: false, deload: false, finisher: false }, hr: { startedAt: started, bpm, summary: { ...summary, kcal: 999 } } });
+    // Incomplete profile (no sex): nothing to do.
+    await db.kv.put({ key: 'settings', value: { ...DEFAULT_SETTINGS, birthYear: 1990, bodyweightKg: 80 } });
+    expect(await backfillKcal()).toBe(0);
+    expect((await db.sessions.get(21))?.hr?.summary?.kcal).toBeUndefined();
+    // Complete: the missing figure is computed (age at the session date), an existing one is kept.
+    await saveProfile({ sex: 'male' });
+    const expected = kcalKeytel(bpm, { sex: 'male', age: 36, weightKg: 80 });
+    expect(expected).toBeGreaterThan(80);
+    expect((await db.sessions.get(21))?.hr?.summary?.kcal).toBe(expected);
+    expect((await db.sessions.get(22))?.hr?.summary?.kcal).toBe(999);
+    // Same profile on the next launch: nothing is re-read. The marker never travels in a backup.
+    expect(await backfillKcal()).toBe(0);
+    expect((await exportBackup()).kv.map((r) => r.key)).not.toContain(KCAL_BACKFILL_KEY);
+    await db.kv.delete(KCAL_BACKFILL_KEY);
+    await db.sessions.bulkDelete([21, 22]);
+    await db.kv.put({ key: 'settings', value: DEFAULT_SETTINGS });
+  });
+
   it('rowing-machine data rides inside the session and round-trips through a backup', async () => {
     const rower = { startedAt: 10, spm: [22, 23, -1, 24], paceSec: [130, 131, -1, 129], watts: [150, 152, -1, 155], distanceM: [4, 8, -1, 16], strokes: 3, summary: { distanceM: 16, avgPaceSec: 130, avgSpm: 23, avgWatts: 152, maxWatts: 155, samples: 3, coverage: 0.75 } };
     await db.sessions.put({ id: 9, templateId: 'row', variantId: 'vo2max-30', startedAt: 1, endedAt: 2, flags: { badDay: false, deload: false, finisher: false }, rowing: { distanceM: 16, avgSplit: '2:10', phaseStartedAt: 10 }, rower });
@@ -434,6 +474,12 @@ describe('backup', () => {
     expect(back?.rower?.summary?.avgPaceSec).toBe(130);
     expect(back?.rower?.spm).toEqual([22, 23, -1, 24]);
     expect(back?.rowing?.phaseStartedAt).toBe(10);
+    // The rowing game rides in the same optional field.
+    await db.sessions.update(9, { rowing: { ...back!.rowing, game: { v: 1, score: 4200, onSec: 300, judgedSec: 320, maxMultiplier: 3, medals: ['gold', null], curve: [100, 300], distCurve: [30, 62] } } });
+    const file2 = JSON.parse(JSON.stringify(await exportBackup()));
+    await db.sessions.clear();
+    await importBackup(file2);
+    expect((await db.sessions.get(9))?.rowing?.game?.medals).toEqual(['gold', null]);
     await db.sessions.delete(9);
   });
 

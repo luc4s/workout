@@ -301,9 +301,6 @@
   font-size: 15px;
 }
 
-.rower-live {
-  font-size: 16px;
-}
 
 .readiness {
   width: 100%;
@@ -440,23 +437,6 @@
   aspect-ratio: auto;
 }
 
-/* Rowing: let the cue card take the slack so its figure has room to grow; the phase list scrolls
-   inside its card and never takes more than half the column. */
-.rest-grid > .stack {
-  min-height: 0;
-}
-
-.rest-grid > .stack > .card:first-child {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.rest-grid > .stack > .phase-list {
-  flex: 0 1 auto;
-  max-height: 46%;
-}
-
 .next-anim .figure,
 .warm-anim .figure {
   height: 100%;
@@ -485,13 +465,6 @@
   }
 }
 
-.phase-label {
-  font-size: 28px;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-}
-
 .runner:has(.interval-hard) {
   background: var(--hard-soft);
 }
@@ -507,21 +480,321 @@
   padding: 8px;
   min-height: 0;
   overflow-y: auto;
-  font-size: 14px;
+  font-size: 17px;
 }
 
 .phase-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 5px 8px;
+  gap: 12px;
+  padding: 6px 10px;
   border-radius: 8px;
 }
 
 .phase-item .dot {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 3px;
+  flex: none;
+}
+
+/* ---------- rowing, in progress ----------
+   Read from the seat, 1–1.5 m away: every number the rower acts on is 40px or more at 960 × 600,
+   captions at least ~22px. Sizes follow the viewport height so a taller tablet gets bigger type;
+   the ring and the tile values also follow their own box (container units) so nothing overflows. */
+.row-live {
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.row-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+}
+
+.row-phase {
+  min-width: 0;
+}
+
+.row-phase-name {
+  font-size: clamp(30px, 7.5vh, 56px);
+  font-weight: 850;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row-phase-what {
+  margin-top: 4px;
+  font-size: clamp(17px, 3.6vh, 24px);
+  font-weight: 650;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row-progress {
+  margin-left: auto;
+  text-align: right;
+  font-size: clamp(18px, 3.8vh, 26px);
+  color: var(--text-2);
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.row-progress b {
+  color: var(--text);
+  font-weight: 800;
+}
+
+.row-main {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 14px;
+  min-height: 0;
+}
+
+.row-ring {
+  container-type: size;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+}
+
+.row-ring .ring {
+  width: min(100cqw, 100cqh);
+}
+
+.row-time {
+  font-size: min(28cqw, 28cqh);
+  font-weight: 850;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+
+.row-of {
+  margin-top: 4px;
+  font-size: min(6.5cqw, 6.5cqh);
+  font-weight: 650;
+  color: var(--text-2);
+}
+
+.row-metrics {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-auto-rows: minmax(0, 1fr);
+  gap: 10px;
+  min-height: 0;
+}
+
+.row-metrics.n1,
+.row-metrics.n2 {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.row-metrics.n3 > :last-child {
+  grid-column: span 2;
+}
+
+.metric {
+  container-type: inline-size;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 8px 16px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border-left: 8px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+.metric.on {
+  border-left-color: var(--good);
+}
+
+.metric.off {
+  border-left-color: var(--warn);
+}
+
+.metric-k {
+  font-size: clamp(13px, 2.8vh, 18px);
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-2);
+}
+
+/* `--len` is the value's width in em (set inline): short readings get the full size, ranges shrink to fit. */
+.metric-v {
+  font-size: min(11.5vh, calc(94cqi / var(--len, 2.5)));
+  font-weight: 850;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+}
+
+.metric.on .metric-v {
+  color: var(--good-ink);
+}
+
+.metric.off .metric-v {
+  color: var(--warn);
+}
+
+/* Score tile: accent edge, and a flash each time the combo reaches a new level (it remounts). */
+.metric.score.neutral {
+  border-left-color: var(--accent);
+}
+
+.metric.score.lvl2,
+.metric.score.lvl3,
+.metric.score.lvl4 {
+  animation: level-up 0.9s ease-out;
+}
+
+@keyframes level-up {
+  0% {
+    box-shadow: 0 0 0 8px var(--accent);
+  }
+  100% {
+    box-shadow: var(--shadow);
+  }
+}
+
+.row-sound {
+  flex: none;
+  align-self: center;
+  min-width: 52px;
+  height: 52px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-size: 24px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.row-sound.locked {
+  font-size: 16px;
+  box-shadow: inset 0 0 0 3px var(--accent);
+}
+
+.metric-t {
+  font-size: clamp(16px, 4.2vh, 28px);
+  font-weight: 650;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.row-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.row-hint {
+  font-size: clamp(16px, 3.6vh, 24px);
+  font-weight: 650;
+}
+
+.row-timeline {
+  display: flex;
+  gap: 3px;
+  height: clamp(12px, 3vh, 20px);
+}
+
+.row-timeline span {
+  position: relative;
+  flex-basis: 0;
+  min-width: 4px;
+  border-radius: 4px;
+}
+
+/* Upcoming and past blocks are dimmed with an overlay (not opacity) so a medal on them stays bright. */
+.row-timeline span:not(.current)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--surface);
+  opacity: 0.55;
+}
+
+.row-timeline span.past::after {
+  opacity: 0.82;
+}
+
+.row-timeline span.current {
+  outline: 2px solid var(--text);
+  outline-offset: 1px;
+  overflow: hidden;
+}
+
+.row-timeline .medal {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 50%;
+  width: clamp(12px, 2.6vh, 18px);
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--surface);
+}
+
+.medal.gold {
+  background: #d6a514;
+}
+
+.medal.silver {
+  background: #9aa4ad;
+}
+
+.medal.bronze {
+  background: #b5713a;
+}
+
+.row-timeline i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: rgb(0 0 0 / 0.3);
+}
+
+.row-next {
+  font-size: clamp(18px, 4.2vh, 28px);
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-radius: var(--radius-sm);
+}
+
+.row-next b {
+  color: var(--text);
+}
+
+/* Last 10 s of a block: the next one is announced. */
+.row-next.soon {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 700;
+  padding: 0 10px;
+  box-shadow: inset 0 0 0 3px var(--accent);
 }
 
 .phase-item.current {
@@ -531,46 +804,6 @@
 
 .phase-item.past {
   color: var(--text-3);
-}
-
-/* Rowing phase targets: cadence · HR · RPE · pace in one row. */
-.target-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.target-grid .target {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 6px 8px;
-  border-radius: 10px;
-  background: var(--surface-2);
-  min-width: 0;
-}
-
-.target-grid .k {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-3);
-}
-
-.target-grid b {
-  font-size: 17px;
-  line-height: 1.1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.target-grid .u {
-  font-size: 12px;
-  color: var(--text-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /* ---------- step list ---------- */
@@ -683,6 +916,18 @@
   .phase-list,
   .rest-grid > .card.stack {
     overflow-y: visible;
+  }
+  .row-live {
+    height: auto;
+  }
+  .row-main {
+    grid-template-columns: 1fr;
+  }
+  .row-ring {
+    height: min(70vw, 420px);
+  }
+  .row-metrics {
+    grid-auto-rows: minmax(130px, auto);
   }
 }
 

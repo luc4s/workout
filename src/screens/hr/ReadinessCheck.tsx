@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { applySuggestion } from '../../coach/apply';
 import { db, DEFAULT_SETTINGS, getSettings, type Readiness, type Settings } from '../../db/db';
 import { strap } from '../../hr/ble';
-import { filterRr, readinessOf, restingHr, rmssd } from '../../hr/metrics';
+import { filterRr, isPlausibleSample, readinessOf, restingHr, rmssd } from '../../hr/metrics';
 import { previousReadiness, recorder, updateRestingHr } from '../../hr/recorder';
 import { useStrap } from '../../hr/useHeartRate';
 import type { RunnerAction, RunnerState } from '../../logic/runner';
@@ -31,6 +31,7 @@ export function ReadinessCheck(props: { state: RunnerState; dispatch: (a: Runner
     if (phase !== 'running') return;
     buf.current = { bpm: [], rr: [] };
     const unsub = strap.onSample((s) => {
+      if (!isPlausibleSample(s)) return;
       buf.current.bpm.push(s.bpm);
       buf.current.rr.push(...s.rr);
       setLive({ bpm: s.bpm, rmssd: rmssd(filterRr(buf.current.rr)) });

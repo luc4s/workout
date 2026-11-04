@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { SessionHr } from '../db/db';
 import { parseHeartRate } from './ble';
-import { banisterTrimp, compareHr, edwardsTrimp, estimateHrMax, filterRr, hrSummary, kcalKeytel, readinessOf, recovery60, restingHr, rmssd, statsBetween, timeInZones, weeklyLoad, zoneOf } from './metrics';
+import { banisterTrimp, compareHr, edwardsTrimp, estimateHrMax, filterRr, hrSummary, isPlausibleSample, kcalKeytel, kcalMissing, readinessOf, recovery60, restingHr, rmssd, statsBetween, timeInZones, weeklyLoad, zoneOf } from './metrics';
 
 const dv = (bytes: number[]) => new DataView(new Uint8Array(bytes).buffer);
 
@@ -40,6 +40,18 @@ describe('zones, load and calories', () => {
     expect(banisterTrimp(hard, 185, 55)).toBeGreaterThan(banisterTrimp(easy, 185, 55) * 2);
     expect(banisterTrimp(Array.from({ length: 60 }, () => 55), 185, 55)).toBe(0);
     expect(edwardsTrimp([...easy, ...hard], 185)).toBeCloseTo(10 * 1 + 10 * 4, 0); // 110 bpm is zone 1, 165 zone 4 at HRmax 185
+  });
+  it('names what the calorie estimate is missing', () => {
+    expect(kcalMissing({})).toEqual(['sex', 'birth year', 'body weight']);
+    expect(kcalMissing({ sex: 'female', age: 40 })).toEqual(['body weight']);
+    expect(kcalMissing({ sex: 'male', age: 35, weightKg: 75 })).toEqual([]);
+  });
+  it('records only readings with skin contact and a physiological value', () => {
+    expect(isPlausibleSample({ bpm: 120, contact: true })).toBe(true);
+    expect(isPlausibleSample({ bpm: 120 })).toBe(true); // strap that does not report contact
+    expect(isPlausibleSample({ bpm: 120, contact: false })).toBe(false);
+    expect(isPlausibleSample({ bpm: 0 })).toBe(false);
+    expect(isPlausibleSample({ bpm: 255 })).toBe(false);
   });
   it('Keytel calories need the profile and scale with HR', () => {
     const hr = Array.from({ length: 3600 }, () => 140);

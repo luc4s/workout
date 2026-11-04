@@ -1,4 +1,4 @@
-import { db, isCoachKey, type SessionRecord, type SetRecord } from './db';
+import { db, isCoachKey, KCAL_BACKFILL_KEY, type SessionRecord, type SetRecord } from './db';
 
 export interface BackupFile {
   app: 'workout';
@@ -11,7 +11,7 @@ export interface BackupFile {
 
 export async function exportBackup(): Promise<BackupFile> {
   const [sessions, sets, kv] = await Promise.all([db.sessions.toArray(), db.sets.toArray(), db.kv.toArray()]);
-  return { app: 'workout', version: 1, exportedAt: Date.now(), sessions, sets, kv: kv.filter((r) => r.key !== 'runner' && !isCoachKey(r.key)) };
+  return { app: 'workout', version: 1, exportedAt: Date.now(), sessions, sets, kv: kv.filter((r) => r.key !== 'runner' && r.key !== KCAL_BACKFILL_KEY && !isCoachKey(r.key)) };
 }
 
 export function validateBackup(data: unknown): BackupFile {
@@ -39,7 +39,8 @@ export async function importBackup(data: unknown): Promise<{ sessions: number; s
     await Promise.all([db.sessions.clear(), db.sets.clear(), db.kv.clear()]);
     await db.sessions.bulkPut(backup.sessions);
     await db.sets.bulkPut(backup.sets);
-    await db.kv.bulkPut(backup.kv.filter((r) => !isCoachKey(r.key)));
+    // The backfill marker is dropped so the imported sessions get their calorie estimate on the next launch.
+    await db.kv.bulkPut(backup.kv.filter((r) => !isCoachKey(r.key) && r.key !== KCAL_BACKFILL_KEY));
     await db.kv.bulkPut(coachRows);
   });
   return { sessions: backup.sessions.length, sets: backup.sets.length };

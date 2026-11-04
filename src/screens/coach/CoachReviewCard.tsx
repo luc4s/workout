@@ -133,6 +133,7 @@ export function CoachReviewCard(props: { session: SessionRecord; sets: SetRecord
           ♥ {h}
         </Note>
       ))}
+      {review.gameNote && <Note kind="plain">★ {review.gameNote}</Note>}
       {review.rowerNotes?.map((h) => (
         <Note key={h} kind="plain">
           ⟋ {h}

@@ -513,6 +513,8 @@ export interface SessionReview {
   hrNotes?: string[];
   /** Rowing-machine notes (console recording): per-interval split and cadence vs target, pacing. */
   rowerNotes?: string[];
+  /** Rowing game: score, on-target share, combo, medals (when a strap / console was connected). */
+  gameNote?: string;
 }
 
 export interface ReviewInput {
@@ -733,6 +735,12 @@ export function sessionReview(input: ReviewInput): SessionReview {
     if (sum.coverage < 0.8) rowerNotes.push(`The console sent data for ${Math.round(sum.coverage * 100)}% of the session — check it stays awake and in range.`);
   }
 
+  const g = session.templateId === 'row' ? session.rowing?.game : undefined;
+  const medalCount = (m: string) => g?.medals.filter((x) => x === m).length ?? 0;
+  const gameNote = g
+    ? `Score ${g.score.toLocaleString('en-US')} · ${Math.round((g.onSec / g.judgedSec) * 100)}% of the judged time on target · best combo ×${g.maxMultiplier}${g.medals.length ? ` · medals: ${['gold', 'silver', 'bronze'].map((m) => `${medalCount(m)} ${m}`).join(', ')}` : ''}.`
+    : undefined;
+
   const scored = slots.filter((s) => !s.restPause && s.target);
   const onTarget = scored.filter((s) => s.verdict === 'beat' || s.verdict === 'hit').length;
   const parts = [`${template.shortName} in ${Math.round(durationMin)} min`];
@@ -758,6 +766,7 @@ export function sessionReview(input: ReviewInput): SessionReview {
     suggestions,
     hrNotes,
     rowerNotes,
+    gameNote,
   };
 }
 

@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { AnimPlayer } from '../../anim3d/AnimPlayer';
-import { EXERCISES } from '../../data/exercises';
 import { TimerRing } from '../../components/TimerRing';
 import { IconPlay } from '../../components/icons';
 import { formatClock } from '../../hooks/useNow';
@@ -11,6 +10,10 @@ import { db, DEFAULT_SETTINGS, type SessionRecord, type Settings } from '../../d
 import { useStrap } from '../../hr/useHeartRate';
 import { fmtPace, hrTargetText, hrVerdict, isWorkPhase, paceVerdict, phaseTargets, spanText, spmVerdict } from '../../logic/rowing';
 import { useRower } from '../../rower/useRower';
+import { rowingClock, useRowGame, type RowGameView } from './useRowGame';
+import { sound } from '../../audio/cues';
+import { medalPhases, nextMultiplierAt } from '../../logic/rowgame';
+import { saveSettings } from '../../db/db';
 import { rowerRecorder } from '../../rower/recorder';
 import { rowerSummary } from '../../logic/rowing';
 
@@ -54,7 +57,13 @@ export function IntervalView(props: {
   const live = rowerState.status === 'on' ? rowerState.last : undefined;
   const liveSpm = live?.spm !== undefined ? spmVerdict(live.spm, phase) : undefined;
   const livePace = live?.paceSec !== undefined ? paceVerdict(live.paceSec, phase, settings) : undefined;
-  const toneOf = (v?: 'on' | 'low' | 'high') => (v === 'on' ? 'var(--good-ink)' : v ? 'var(--warn)' : undefined);
+
+  const rowGame = useRowGame(state, step, now, settings, started && !pos.finished);
+  const startRowing = () => {
+    sound.unlock();
+    dispatch({ type: 'check', key: startedKey, value: true });
+    dispatch({ type: 'restartStep', now: Date.now() });
+  };
 
   // Auto-start on the first stroke when the console is connected.
   const autoStart = settings.rowerAutoStart !== false;
@@ -110,13 +119,7 @@ export function IntervalView(props: {
           <div className="next-anim" style={{ width: '100%' }}>
             <AnimPlayer exerciseId={step.exerciseId} />
           </div>
-          <button
-            className="btn primary huge block"
-            onClick={() => {
-              dispatch({ type: 'check', key: startedKey, value: true });
-              dispatch({ type: 'restartStep', now: Date.now() });
-            }}
-          >
+          <button className="btn primary huge block" onClick={startRowing}>
             <IconPlay width={28} height={28} /> Start rowing
           </button>
         </section>
@@ -148,7 +151,12 @@ export function IntervalView(props: {
             onClick={() =>
               onFinish({
                 notes: notes || undefined,
-                rowing: { distanceM: distance ? Number(distance) : undefined, avgSplit: split || undefined, phaseStartedAt: state.stepStartedAt },
+                rowing: {
+                  distanceM: distance ? Number(distance) : undefined,
+                  avgSplit: split || undefined,
+                  // stepStartedAt moves forward with every pause; the recordings are wall-clock.
+                  ...rowingClock(state),
+                },
               })
             }
           >
@@ -161,90 +169,209 @@ export function IntervalView(props: {
   }
 
   const next = step.phases[pos.phaseIndex + 1];
-  const hrColor = verdict === 'on' ? 'var(--good-ink)' : verdict === 'lag' ? 'var(--text-2)' : 'var(--warn)';
+  const remaining = Math.ceil(pos.phaseRemainingSec);
+  const soon = !!next && remaining <= 10;
+  const playing = !!rowGame && (bpm !== undefined || !!live || rowGame.game.judgedSec > 0);
+  const tiles = metricTiles({ targets, bpm, verdict, lagging, live, liveSpm, livePace, game: playing ? rowGame : undefined });
+  const soundOn = settings.rowingSound !== false;
+  const extras = live ? [live.watts !== undefined ? `${live.watts} W` : '', live.distanceM !== undefined ? `${live.distanceM.toLocaleString()} m` : ''].filter(Boolean) : [];
   return (
-    <div className={`rest-grid interval-${phase.intensity}`}>
-      <section className="rest-timer">
-        <div className="phase-label" style={{ color: COLOR[phase.intensity] }}>
-          {phase.label}
+    <div
+      className={`row-live interval-${phase.intensity}`}
+      onPointerDownCapture={() => {
+        lockedAtPress = !sound.unlocked;
+        sound.unlock();
+      }}
+    >
+      <header className="row-head">
+        <div className="row-phase" style={{ color: COLOR[phase.intensity] }}>
+          <div className="row-phase-name">{phase.label}</div>
+          <div className="row-phase-what">
+            {(phase.kind && KIND_TITLE[phase.kind]) ?? TITLE[phase.intensity]}
+            {playing && targets.rpe ? ` · RPE ${targets.rpe}` : ''}
+          </div>
         </div>
-        <TimerRing progress={1 - pos.phaseRemainingSec / phase.durationSec} color={COLOR[phase.intensity]} size={380} stroke={24}>
+        <div className="row-progress num">
+          {workTotal > 0 && (
+            <div>
+              Work <b>{Math.max(workDone, 0)}</b> of {workTotal}
+            </div>
+          )}
           <div>
-            <div className="ring-time num">{formatClock(Math.ceil(pos.phaseRemainingSec))}</div>
-            <div className="muted num">{formatClock(Math.ceil(pos.totalRemainingSec))} left in session</div>
-          </div>
-        </TimerRing>
-        {workTotal > 0 && (
-          <div className="muted">
-            Work interval {Math.max(workDone, 0)} of {workTotal}
-          </div>
-        )}
-        {bpm !== undefined && (
-          <div className="rest-hr num">
-            <span style={{ color: hrColor, fontWeight: 800 }}>♥ {bpm}</span>
-            <span className="muted"> · target {hrTargetText(targets.hrBpm)} bpm</span>
-            {verdict === 'lag' && <span className="faint"> · HR still climbing — go by feel</span>}
-            {verdict === 'high' && <span className="faint"> · above the band — ease off</span>}
-            {verdict === 'low' && <span className="faint"> · below the band</span>}
-          </div>
-        )}
-        {live && (
-          <div className="rest-hr num rower-live">
-            <span style={{ color: toneOf(liveSpm), fontWeight: 800 }}>{live.spm !== undefined ? `${Math.round(live.spm)} spm` : '– spm'}</span>
-            <span className="muted"> · </span>
-            <span style={{ color: toneOf(livePace), fontWeight: 800 }}>{live.paceSec !== undefined ? `${fmtPace(live.paceSec)} /500 m` : '–:–– /500 m'}</span>
-            {live.watts !== undefined && <span className="muted"> · {live.watts} W</span>}
-            {live.distanceM !== undefined && <span className="muted"> · {live.distanceM} m</span>}
-          </div>
-        )}
-        {next && (
-          <div className="faint">
-            Next: {next.label} · {formatClock(next.durationSec)}
-            {next.spm ? ` · ${spanText(next.spm)} spm` : ''}
-          </div>
-        )}
-      </section>
-      <section className="stack">
-        <div className="card stack tight">
-          <div className="section-title">{(phase.kind && KIND_TITLE[phase.kind]) ?? TITLE[phase.intensity]}</div>
-          {(targets.spm || targets.hrPct || targets.rpe || targets.pace) && (
-            <div className="target-grid">
-              <Target label="Cadence" value={targets.spm} unit="spm" />
-              <Target label="Heart rate" value={targets.hrPct} unit={`${hrTargetText(targets.hrBpm)} bpm`} />
-              <Target label="Effort" value={targets.rpe} unit="RPE / 10" />
-              <Target label="Pace" value={targets.paceSplit ?? targets.paceOffset} unit={targets.paceSplit ? `${targets.paceOffset} vs 2k` : 'vs 2k split'} />
-            </div>
-          )}
-          {(targets.hint || lagging) && (
-            <div className="coach" style={{ fontSize: 14 }}>
-              {targets.hint ?? ''}
-              {targets.hint && lagging ? ' ' : ''}
-              {lagging ? `HR reaches its target only after ~${formatClock(targets.lagSec!)} — row by feel, HR confirms.` : ''}
-            </div>
-          )}
-          <div className="next-anim">
-            <AnimPlayer exerciseId="rowing-stroke" />
-          </div>
-          <div className="cue-row">
-            {EXERCISES['rowing-stroke'].cues.slice(0, 2).map((c) => (
-              <span key={c} className="badge accent">
-                {c}
-              </span>
-            ))}
+            <b>{formatClock(Math.ceil(pos.totalRemainingSec))}</b> left{extras.length ? ` · ${extras.join(' · ')}` : ''}
           </div>
         </div>
-        <PhaseList step={step} current={pos.phaseIndex} />
-      </section>
+        {sound.supported && (
+          <button
+            type="button"
+            className={`row-sound${soundOn && !sound.unlocked ? ' locked' : ''}`}
+            onClick={() => {
+              // While the page had no sound yet, the tap only unlocks it (it must not also mute).
+              const wasLocked = lockedAtPress || !sound.unlocked;
+              lockedAtPress = false;
+              sound.unlock();
+              if (soundOn && wasLocked) return;
+              saveSettings({ rowingSound: !soundOn });
+            }}
+            aria-label={soundOn ? 'Mute the sound cues' : 'Turn the sound cues on'}
+          >
+            {soundOn ? (sound.unlocked ? '🔊' : '🔈 tap') : '🔇'}
+          </button>
+        )}
+      </header>
+
+      <div className="row-main">
+        <div className="row-ring">
+          <TimerRing progress={1 - pos.phaseRemainingSec / phase.durationSec} color={COLOR[phase.intensity]} size={420} stroke={28}>
+            <div>
+              <div className="row-time num">{formatClock(remaining)}</div>
+              <div className="row-of num">of {formatClock(phase.durationSec)}</div>
+            </div>
+          </TimerRing>
+        </div>
+        <div className={`row-metrics n${tiles.length}`}>
+          {tiles.map((t) => (
+            <Metric key={t.label} {...t} />
+          ))}
+        </div>
+      </div>
+
+      <footer className="row-foot">
+        {targets.hint && <div className="row-hint">{targets.hint}</div>}
+        <Timeline step={step} current={pos.phaseIndex} progress={1 - pos.phaseRemainingSec / phase.durationSec} medals={playing ? rowGame!.game.medals : []} />
+        <div className={`row-next${soon ? ' soon' : ''}`}>
+          {next ? (
+            <>
+              Next: <b>{next.label}</b> · {formatClock(next.durationSec)}
+              {next.spm !== undefined ? ` · ${spanText(next.spm)} spm` : ''}
+              {next.hrPct ? ` · ${next.hrPct[0] > 0 ? `${next.hrPct[0]}–${next.hrPct[1]}` : `≤ ${next.hrPct[1]}`} %` : ''}
+            </>
+          ) : (
+            <>Last block — then log the monitor numbers</>
+          )}
+        </div>
+      </footer>
     </div>
   );
 }
 
-function Target({ label, value, unit }: { label: string; value?: string; unit: string }) {
+/** Whether audio was still locked when the current tap started (see the sound button). */
+let lockedAtPress = false;
+
+type Tone = 'on' | 'off' | 'neutral';
+
+interface Tile {
+  label: string;
+  value: string;
+  /** The line under the value: the target when the value is live, else what the target means. */
+  sub?: string;
+  tone: Tone;
+  score?: boolean;
+  level?: number;
+}
+
+/**
+ * The tiles of the rowing screen. Each shows the live reading in large type with the target under
+ * it; without a strap / console the target itself is the large value. A tile with neither is left out.
+ */
+function metricTiles(a: {
+  targets: ReturnType<typeof phaseTargets>;
+  bpm?: number;
+  verdict?: ReturnType<typeof hrVerdict>;
+  lagging: boolean;
+  live?: { spm?: number; paceSec?: number };
+  liveSpm?: 'on' | 'low' | 'high';
+  livePace?: 'on' | 'low' | 'high';
+  game?: RowGameView;
+}): Tile[] {
+  const { targets: t, bpm, verdict, lagging, live, liveSpm, livePace, game } = a;
+  const tone = (v?: 'on' | 'low' | 'high'): Tone => (v === 'on' ? 'on' : v ? 'off' : 'neutral');
+  const tiles: Tile[] = [];
+  const band = t.hasHr ? hrTargetText(t.hrBpm) : undefined;
+
+  if (bpm !== undefined) {
+    const showBand = band && band !== '—';
+    tiles.push({
+      label: 'Heart rate · bpm',
+      value: String(bpm),
+      sub: !showBand ? 'no target here' : verdict === 'lag' ? 'rising · by feel' : `target ${band}`,
+      tone: !showBand || verdict === 'lag' ? 'neutral' : verdict === 'on' ? 'on' : 'off',
+    });
+  } else if (band && band !== '—') {
+    tiles.push({ label: 'Heart rate · bpm', value: band, sub: lagging ? 'lags 1:30 · by feel' : t.hrPct ? `${t.hrPct} of max` : undefined, tone: 'neutral' });
+  }
+
+  if (live?.spm !== undefined) {
+    tiles.push({ label: 'Stroke rate · spm', value: String(Math.round(live.spm)), sub: t.spm ? `target ${t.spm}` : 'no target here', tone: t.spm ? tone(liveSpm) : 'neutral' });
+  } else if (t.spm) {
+    tiles.push({ label: 'Stroke rate · spm', value: t.spm, sub: 'strokes / min', tone: 'neutral' });
+  }
+
+  const paceTarget = t.paceSplit ?? t.paceOffset;
+  if (live?.paceSec !== undefined) {
+    tiles.push({ label: 'Split · /500 m', value: fmtPace(live.paceSec), sub: paceTarget ? `target ${paceTarget}${t.paceSplit ? '' : ' vs 2k'}` : 'no target here', tone: t.paceSplit ? tone(livePace) : 'neutral' });
+  } else if (paceTarget) {
+    tiles.push({ label: t.paceSplit ? 'Split · /500 m' : 'Split · vs 2k', value: paceTarget, sub: t.paceSplit ? `${t.paceOffset} vs 2k` : '2k pace: Settings', tone: 'neutral' });
+  }
+
+  if (game) tiles.push(scoreTile(game));
+  else if (t.rpe) tiles.push({ label: 'Effort · RPE /10', value: t.rpe, sub: 'by feel', tone: 'neutral' });
+  return tiles;
+}
+
+/** Score, combo and the race against the ghost of the last session of the same workout. */
+function scoreTile({ game: g, delta }: RowGameView): Tile {
+  const combo = g.multiplier > 1 ? ` · ×${g.multiplier} combo` : '';
+  let sub: string;
+  let tone: Tone = 'neutral';
+  if (delta) {
+    const v = delta.metres ?? delta.points;
+    const unit = delta.metres !== undefined ? 'm' : 'pts';
+    sub = v === 0 ? 'level with last time' : `${v > 0 ? 'ahead' : 'behind'} ${Math.abs(v).toLocaleString('en-US').replace(/,/g, ' ')} ${unit}`;
+    tone = v >= 0 ? 'on' : 'off';
+  } else {
+    const nextAt = nextMultiplierAt(g.combo);
+    sub = nextAt === undefined ? 'max combo' : `×${g.multiplier + 1} in ${nextAt - g.combo} s`;
+  }
+  return { label: `Score${combo}`, value: g.score.toLocaleString('en-US').replace(/,/g, ' '), sub, tone, score: true, level: g.multiplier };
+}
+
+function Metric({ label, value, sub, tone, score, level }: Tile) {
   return (
-    <div className="target">
-      <span className="k">{label}</span>
-      <b className="num">{value ?? '—'}</b>
-      <span className="u">{value ? unit : 'free'}</span>
+    // The score tile remounts on each combo level so its flash animation replays.
+    <div key={score ? `lvl${level}` : undefined} className={`metric ${tone}${score ? ` score lvl${level}` : ''}`}>
+      <div className="metric-k">{label}</div>
+      <div className="metric-v num" style={{ '--len': emWidth(value) } as CSSProperties}>
+        {value}
+      </div>
+      {sub && <div className="metric-t num">{sub}</div>}
+    </div>
+  );
+}
+
+/** Approximate width of a value in em (tabular digits ~0.58, punctuation narrower), so CSS can fit it to its tile. */
+function emWidth(text: string): number {
+  let w = 0;
+  for (const ch of text) w += /\d/.test(ch) ? 0.58 : ch === ':' || ch === '.' ? 0.32 : ch === ' ' ? 0.28 : ch === '–' || ch === '-' ? 0.55 : 0.62;
+  return Math.max(1.5, Math.round(w * 100) / 100);
+}
+
+/** The whole workout as one proportional strip: past blocks faded, the current one filling up. */
+function Timeline({ step, current, progress, medals }: { step: IntervalStep; current: number; progress: number; medals: (string | null)[] }) {
+  // Medals are earned in order by the medal-eligible blocks.
+  const eligible = medalPhases(step.phases);
+  return (
+    <div className="row-timeline" aria-hidden>
+      {step.phases.map((p, i) => {
+        const k = eligible.indexOf(i);
+        const medal = k >= 0 ? medals[k] : undefined;
+        return (
+          <span key={i} className={i < current ? 'past' : i === current ? 'current' : undefined} style={{ flexGrow: p.durationSec, background: COLOR[p.intensity] }}>
+            {i === current && <i style={{ width: `${Math.max(0, Math.min(1, progress)) * 100}%` }} />}
+            {medal && <b className={`medal ${medal}`} />}
+          </span>
+        );
+      })}
     </div>
   );
 }

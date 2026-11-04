@@ -1,3 +1,5 @@
+import { isPlausibleSample } from './metrics';
+
 /**
  * Web Bluetooth client for a heart-rate strap (Polar H10 or any strap with the standard
  * Heart Rate Service). One connection for the whole app; views subscribe to samples and status.
@@ -133,7 +135,9 @@ class Strap {
       const candidates = name ? devices.filter((d) => d.name === name) : devices;
       for (const d of candidates) {
         try {
-          await d.gatt?.connect();
+          const server = await d.gatt?.connect();
+          // The origin may also know the rowing console: only a device with the heart-rate service counts.
+          await server?.getPrimaryService('heart_rate');
           return d;
         } catch {
           /* out of range or asleep — try the next one / the picker */
@@ -169,7 +173,7 @@ class Strap {
     const ch = ev.target as BluetoothRemoteGATTCharacteristic;
     if (!ch.value) return;
     const s = parseHeartRate(ch.value);
-    this.set({ bpm: s.bpm, contact: s.contact, lastAt: s.at });
+    this.set({ bpm: isPlausibleSample(s) ? s.bpm : undefined, contact: s.contact, lastAt: s.at });
     for (const fn of this.sampleListeners) fn(s);
   };
 
