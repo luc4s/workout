@@ -53,6 +53,11 @@ backups. Every change must keep that data working with **no migration step**:
   `navigator.bluetooth`; everything else goes through the `strap` / `rower` singletons and their
   recorders, so tests and headless checks can fake them. A known device is only reused after checking
   it has the expected service (the origin knows both the strap and the console).
+- Reconnecting without a tap: `autoConnect(name)` watches the remembered device's advertisements
+  (`watchKnownDevice` in `src/hr/ble.ts`, shared with the rower) and connects when it appears —
+  never a blind `gatt.connect()` to a device that may be asleep, except where the browser cannot
+  watch. `rememberDevices()` (`src/hr/remember.ts`) saves the name of whatever connects, wherever it
+  was paired. The console is only looked for on rowing screens (holding it would block other apps).
 - Readings the strap flags as "no skin contact" are not heart rate: `isPlausibleSample` keeps them out
   of the recording, the live state and the readiness check.
 - Profile fields that feed estimates (sex, birth year, body weight, resting HR) show as unset until

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { Chips, Note, Stepper, ToggleRow } from '../../components/controls';
 import { db, DEFAULT_SETTINGS, saveSettings, type Settings } from '../../db/db';
@@ -17,9 +17,6 @@ export function StrapSettingsCard() {
   const [paceText, setPaceText] = useState<string | undefined>(undefined);
   const paceShown = paceText ?? (s.pace2kSec ? fmtPace(s.pace2kSec) : '');
   const paceBad = !!paceText && paceText.trim() !== '' && parsePace(paceText) === undefined;
-  useEffect(() => {
-    if (st.status === 'on' && st.deviceName && st.deviceName !== s.strapName) saveSettings({ strapName: st.deviceName });
-  }, [st.status, st.deviceName, s.strapName]);
 
   return (
     <div className="card stack">
@@ -46,7 +43,7 @@ export function StrapSettingsCard() {
               <button className="btn primary" onClick={() => strap.connect(s.strapName)} disabled={st.status === 'connecting'}>
                 {st.status === 'connecting' ? 'Connecting…' : st.status === 'lost' ? 'Reconnect strap' : 'Connect strap'}
               </button>
-              {s.strapName && <span className="faint">Last paired: {s.strapName}</span>}
+              {s.strapName && <span className="faint">{st.status === 'waiting' ? `Looking for ${s.strapName} — it connects as soon as it is worn` : `Last paired: ${s.strapName}`}</span>}
             </>
           )}
         </div>

@@ -17,7 +17,7 @@ export function RowerBadge() {
       </span>
     );
   }
-  const label = st.status === 'connecting' ? '⟋ …' : st.status === 'lost' ? '⟋ lost' : st.status === 'on' ? '⟋ –' : '⟋ rower';
+  const label = st.status === 'connecting' ? '⟋ …' : st.status === 'waiting' ? '⟋ waiting' : st.status === 'lost' ? '⟋ lost' : st.status === 'on' ? '⟋ –' : '⟋ rower';
   return (
     <button type="button" className="hr-badge btn small ghost" onClick={() => rower.connect(s?.rowerName)} aria-label="Connect the rowing machine">
       {label}

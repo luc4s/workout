@@ -40,7 +40,8 @@ export function parseHeartRate(data: DataView, at = Date.now()): HrSample {
   return { bpm, rr, contact, energy, at };
 }
 
-export type StrapStatus = 'unsupported' | 'off' | 'connecting' | 'on' | 'lost';
+/** `waiting`: a remembered strap is not around yet; it connects by itself as soon as it advertises. */
+export type StrapStatus = 'unsupported' | 'off' | 'connecting' | 'waiting' | 'on' | 'lost';
 
 export interface StrapState {
   status: StrapStatus;
@@ -59,6 +60,56 @@ export function isBluetoothSupported(): boolean {
   return typeof navigator !== 'undefined' && !!navigator.bluetooth;
 }
 
+type KnownBluetooth = Bluetooth & { getDevices?: () => Promise<BluetoothDevice[]> };
+type WatchableDevice = BluetoothDevice & { watchAdvertisements?: (o?: { signal?: AbortSignal }) => Promise<void> };
+
+/**
+ * What this browser allows for devices paired before: `auto` reconnects without a tap (it lists the
+ * devices this site was allowed to use), `tap` needs the Connect button each visit, `none` has no
+ * Web Bluetooth at all.
+ */
+export function reconnectSupport(): 'auto' | 'tap' | 'none' {
+  if (!isBluetoothSupported()) return 'none';
+  return (navigator.bluetooth as KnownBluetooth).getDevices ? 'auto' : 'tap';
+}
+
+/**
+ * Wait for a remembered device (by name) to advertise, then hand it to `onSeen` once — Chrome's
+ * pattern for reconnecting without a tap: connecting to a device that is asleep just times out.
+ * Resolves to a stop function, or undefined when the browser cannot watch for it.
+ * Shared by the strap and the rowing console (src/rower/ble.ts).
+ */
+export async function watchKnownDevice(name: string, onSeen: (d: BluetoothDevice) => void): Promise<(() => void) | undefined> {
+  if (!isBluetoothSupported()) return undefined;
+  const nav = navigator.bluetooth as KnownBluetooth;
+  if (!nav.getDevices) return undefined;
+  let d: WatchableDevice | undefined;
+  try {
+    d = (await nav.getDevices()).find((x) => x.name === name);
+  } catch {
+    return undefined;
+  }
+  if (!d || typeof d.watchAdvertisements !== 'function') return undefined;
+  const device = d;
+  const ac = new AbortController();
+  const stop = () => {
+    ac.abort();
+    device.removeEventListener('advertisementreceived', seen);
+  };
+  const seen = () => {
+    stop();
+    onSeen(device);
+  };
+  device.addEventListener('advertisementreceived', seen);
+  try {
+    await device.watchAdvertisements!({ signal: ac.signal });
+  } catch {
+    device.removeEventListener('advertisementreceived', seen);
+    return undefined;
+  }
+  return stop;
+}
+
 class Strap {
   state: StrapState = { status: isBluetoothSupported() ? 'off' : 'unsupported' };
   private device?: BluetoothDevice;
@@ -67,6 +118,7 @@ class Strap {
   private wantConnected = false;
   private retryTimer?: ReturnType<typeof setTimeout>;
   private retries = 0;
+  private stopWatch?: () => void;
 
   onSample(fn: SampleListener): () => void {
     this.sampleListeners.add(fn);
@@ -93,6 +145,7 @@ class Strap {
       this.set({ status: 'unsupported' });
       return;
     }
+    this.stopWatching();
     this.wantConnected = true;
     this.set({ status: 'connecting', error: undefined });
     try {
@@ -108,10 +161,22 @@ class Strap {
     }
   }
 
-  /** Reconnect to a strap this origin already knows, without the picker (no user gesture needed). */
+  /**
+   * Reconnect to a strap this origin already knows, without the picker (no user gesture needed).
+   * Where the browser can, it waits for the strap to advertise (status `waiting`) and connects the
+   * moment it is worn; otherwise it tries a direct connection once.
+   */
   async autoConnect(knownName?: string): Promise<boolean> {
-    if (!isBluetoothSupported() || this.state.status === 'on' || this.state.status === 'connecting') return this.state.status === 'on';
+    const st = this.state.status;
+    if (!isBluetoothSupported() || st === 'on' || st === 'connecting' || st === 'waiting') return st === 'on';
+    if (!knownName) return false;
     this.set({ status: 'connecting', error: undefined });
+    const stop = await watchKnownDevice(knownName, (d) => this.onSeen(d, knownName));
+    if (stop) {
+      this.stopWatch = stop;
+      if (this.state.status === 'connecting') this.set({ status: 'waiting' });
+      return false;
+    }
     try {
       const device = await this.knownDevice(knownName);
       if (!device) {
@@ -127,8 +192,28 @@ class Strap {
     }
   }
 
+  /** A remembered strap advertised: connect to it, or keep waiting if that fails. */
+  private onSeen = async (device: BluetoothDevice, name: string) => {
+    this.stopWatch = undefined;
+    if (this.state.status === 'on') return;
+    this.wantConnected = true;
+    this.set({ status: 'connecting' });
+    try {
+      await this.attach(device);
+    } catch {
+      this.wantConnected = false;
+      this.set({ status: 'off' });
+      void this.autoConnect(name);
+    }
+  };
+
+  private stopWatching() {
+    this.stopWatch?.();
+    this.stopWatch = undefined;
+  }
+
   private async knownDevice(name?: string): Promise<BluetoothDevice | undefined> {
-    const nav = navigator.bluetooth as Bluetooth & { getDevices?: () => Promise<BluetoothDevice[]> };
+    const nav = navigator.bluetooth as KnownBluetooth;
     if (!nav.getDevices) return undefined;
     try {
       const devices = await nav.getDevices();
@@ -199,6 +284,7 @@ class Strap {
 
   async disconnect() {
     this.wantConnected = false;
+    this.stopWatching();
     if (this.retryTimer) clearTimeout(this.retryTimer);
     const d = this.device;
     this.device = undefined;

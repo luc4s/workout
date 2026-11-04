@@ -16,6 +16,7 @@ import { phaseTargets, spanText } from '../logic/rowing';
 import { getCoachNext, type CoachNext } from '../coach/store';
 import { enterFullscreen } from '../hooks/useFullscreen';
 import { sound } from '../audio/cues';
+import { DevicesCard } from './hr/DevicesCard';
 
 export default function SessionSetup() {
   const { templateId = 'A' } = useParams();
@@ -228,6 +229,7 @@ export default function SessionSetup() {
               )}
             </div>
           )}
+          <DevicesCard rowing={isRowing} />
           <div className="card stack">
             <div className="muted">{template.intro}</div>
             {warnings.map((w) => (
